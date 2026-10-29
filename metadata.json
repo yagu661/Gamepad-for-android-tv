@@ -1,0 +1,6 @@
+{
+  "name": "XstreamPad - Roblox TV Gamepad",
+  "description": "Turn your smartphone into a low-latency wireless gamepad for playing Roblox on Airtel Xstream Box and Android TV with dual analog sticks, haptics, and instant QR pairing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
