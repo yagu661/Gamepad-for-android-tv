@@ -39,6 +39,7 @@ import {
 } from '../types/gamepad';
 import { connectionManager } from '../utils/connection';
 import { triggerHaptic, playButtonSound } from '../utils/audio';
+import { requestAutoLandscape, setupAutoLandscapeOnFirstTouch } from '../utils/orientation';
 
 interface GamepadControllerProps {
   roomCode: string;
@@ -74,9 +75,16 @@ export const GamepadController: React.FC<GamepadControllerProps> = ({
   const [showQuickBar, setShowQuickBar] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLandscape, setIsLandscape] = useState(true);
+  const [forceRotate90, setForceRotate90] = useState(false);
   const [turboActive, setTurboActive] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState(1);
   const [status, setStatus] = useState<RoomConnectionStatus>(connectionManager.getStatus());
+
+  // Auto-rotate to landscape as soon as app opens like all games
+  useEffect(() => {
+    const cleanup = setupAutoLandscapeOnFirstTouch();
+    return () => cleanup();
+  }, []);
 
   // Input states
   const axesRef = useRef<GamepadAxes>({ lx: 0, ly: 0, rx: 0, ry: 0 });
@@ -318,21 +326,49 @@ export const GamepadController: React.FC<GamepadControllerProps> = ({
   return (
     <div
       className="fixed inset-0 w-full h-full select-none touch-none overflow-hidden bg-black text-white font-sans flex items-center justify-center p-0 md:p-3"
-      style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
+      style={{
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        ...( !isLandscape && forceRotate90 ? {
+          transform: 'rotate(90deg)',
+          transformOrigin: 'center center',
+          width: '100vh',
+          height: '100vw',
+          position: 'fixed',
+          top: '50%',
+          left: '50%',
+          marginTop: '-50vw',
+          marginLeft: '-50vh',
+        } : {})
+      }}
     >
-      {/* Portrait Prompt Banner */}
-      {!isLandscape && (
-        <div className="absolute top-4 left-4 right-4 z-50 bg-zinc-900/95 border border-emerald-500/50 rounded-2xl p-3 text-xs text-center flex items-center justify-between shadow-2xl">
-          <div className="flex items-center gap-2 text-zinc-200">
-            <RotateCcw className="w-5 h-5 text-emerald-400 animate-spin" />
-            <span>Rotate phone to <strong>Landscape</strong> for the full Xbox gamepad!</span>
+      {/* Portrait Prompt & Quick Auto-Rotate Overlay */}
+      {!isLandscape && !forceRotate90 && (
+        <div className="absolute inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in">
+          <div className="w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center mb-4 shadow-[0_0_30px_rgba(16,185,129,0.5)]">
+            <RotateCcw className="w-8 h-8 text-emerald-400 animate-spin" />
           </div>
-          <button
-            onClick={() => setIsLandscape(true)}
-            className="text-[10px] bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-lg font-bold"
-          >
-            Dismiss
-          </button>
+          <h2 className="text-xl font-black text-white mb-1">Rotate to Landscape</h2>
+          <p className="text-xs text-zinc-400 max-w-xs mb-6">
+            Like all mobile games, XstreamPad is designed for landscape two-thumb console gaming.
+          </p>
+
+          <div className="flex flex-col gap-3 w-full max-w-xs">
+            <button
+              onClick={() => requestAutoLandscape()}
+              className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm rounded-2xl shadow-xl flex items-center justify-center gap-2 active:scale-95 transition-all"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>Auto-Rotate Screen</span>
+            </button>
+
+            <button
+              onClick={() => setForceRotate90(true)}
+              className="w-full py-3 bg-zinc-900 border border-white/20 text-zinc-300 font-bold text-xs rounded-2xl hover:text-white active:scale-95 transition-all"
+            >
+              Hold Phone Sideways (Force 90°)
+            </button>
+          </div>
         </div>
       )}
 

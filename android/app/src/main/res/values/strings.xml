@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">XstreamPad Xbox Controller</string>
+    <string name="title_activity_main">XstreamPad Xbox Controller</string>
+    <string name="package_name">com.xstreampad.roblox</string>
+    <string name="custom_url_scheme">com.xstreampad.roblox</string>
+</resources>

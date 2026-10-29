@@ -90,20 +90,34 @@ git push -u origin main`;
           <div className="p-3.5 bg-zinc-950/70 border border-zinc-800 rounded-xl space-y-2">
             <span className="font-bold text-white flex items-center gap-2 text-xs">
               <span className="w-5 h-5 rounded-full bg-emerald-600 text-black font-black flex items-center justify-center text-[10px]">2</span>
-              Open the GitHub "Releases" Section
+              Where to Download the APK on GitHub
             </span>
             <p className="text-zinc-400">
-              Once pushed, GitHub Actions compiles the Android project in 2-3 minutes.
+              The workflow builds in ~2 minutes and places the APK in two locations:
             </p>
-            <div className="p-2.5 bg-zinc-900 rounded-lg border border-zinc-700/60 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Github className="w-4 h-4 text-white" />
-                <span className="font-mono text-zinc-300">github.com/&lt;user&gt;/&lt;repo&gt;/<strong>releases</strong></span>
+            <div className="space-y-2">
+              <div className="p-2.5 bg-zinc-900 rounded-lg border border-zinc-700/60 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Github className="w-4 h-4 text-emerald-400" />
+                  <span className="font-mono text-zinc-300">github.com/&lt;user&gt;/&lt;repo&gt;/<strong>releases</strong></span>
+                </div>
+                <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded">
+                  Releases Tab
+                </span>
               </div>
-              <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded">
-                Releases Tab
-              </span>
+              <div className="p-2.5 bg-zinc-900 rounded-lg border border-zinc-700/60 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Download className="w-4 h-4 text-cyan-400" />
+                  <span className="font-mono text-zinc-300"><strong>Actions</strong> &rarr; Click latest run &rarr; <strong>Artifacts</strong></span>
+                </div>
+                <span className="text-[10px] text-cyan-400 font-bold bg-cyan-500/10 px-2 py-0.5 rounded">
+                  Direct Artifact
+                </span>
+              </div>
             </div>
+            <p className="text-[11px] text-zinc-500">
+              💡 Tip: If your GitHub repo has restricted release tokens, enable "Read and write permissions" under <span className="text-zinc-400">Settings &rarr; Actions &rarr; General &rarr; Workflow permissions</span>.
+            </p>
           </div>
 
           {/* Step 3 */}
