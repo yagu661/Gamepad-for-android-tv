@@ -31,10 +31,10 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Setup Android SDK Platform 35
-        uses: android-actions/setup-android@v4
-        with:
-          packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
+      - name: Setup Android SDK Tools & Licenses
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools" || true
 
       - name: Install npm dependencies
         run: npm install
@@ -42,25 +42,52 @@ jobs:
       - name: Build Web Application
         run: npm run build
 
-      - name: Ensure Capacitor Android Platform Exists
+      - name: Ensure Complete Capacitor Android Platform
         run: |
-          if [ ! -d "android" ]; then
+          # If gradlew or settings.gradle is missing from the repository, recreate the complete platform
+          if [ ! -f "android/gradlew" ] || [ ! -f "android/settings.gradle" ] || [ ! -f "android/gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Incomplete android directory detected. Generating complete Android platform with Capacitor..."
+            rm -rf android
             npx cap add android
           fi
+
+          # Ensure SDK 35 compatibility (avoid SDK 36 preview errors)
+          if [ -f "android/variables.gradle" ]; then
+            sed -i 's/compileSdkVersion = 36/compileSdkVersion = 35/g' android/variables.gradle
+            sed -i 's/targetSdkVersion = 36/targetSdkVersion = 35/g' android/variables.gradle
+          fi
+
+          # Ensure lightweight bin distribution and connection timeout
+          if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
+            sed -i 's/-all.zip/-bin.zip/g' android/gradle/wrapper/gradle-wrapper.properties
+            if ! grep -q "networkTimeout" android/gradle/wrapper/gradle-wrapper.properties; then
+              echo "networkTimeout=60000" >> android/gradle/wrapper/gradle-wrapper.properties
+            fi
+          fi
+
+          # Ensure safe google-services check
+          if [ -f "android/app/build.gradle" ]; then
+            sed -i 's/servicesJSON.text/servicesJSON.exists()/g' android/app/build.gradle
+          fi
+
+          # Synchronize web assets
           npx cap sync android
 
-      - name: Grant Execute Permission to Gradlew
-        run: chmod +x android/gradlew
-
-      - name: Build Android Debug APK with Gradle
+      - name: Build Android Debug APK
         run: |
           cd android
+          chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Prepare APK for Release
+      - name: Locate and Prepare APK for Release
         run: |
           mkdir -p release-output
-          cp android/app/build/outputs/apk/debug/app-debug.apk release-output/XstreamPad-Xbox-Roblox.apk
+          APK_FILE=$(find android/app/build/outputs/apk -name "*.apk" ! -name "*unaligned*" | head -n 1)
+          if [ -z "$APK_FILE" ]; then
+            APK_FILE=$(find . -name "*.apk" | head -n 1)
+          fi
+          echo "Found compiled APK at: $APK_FILE"
+          cp "$APK_FILE" release-output/XstreamPad-Xbox-Roblox.apk
 
       - name: Upload APK as Workflow Artifact
         uses: actions/upload-artifact@v4
