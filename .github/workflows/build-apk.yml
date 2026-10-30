@@ -1,9 +1,10 @@
-
 name: Build and Release Android APK
 
 on:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - master
     tags:
       - 'v*'
   workflow_dispatch:
@@ -32,12 +33,13 @@ jobs:
           java-version: '21'
           cache: gradle
 
-      - name: Setup Android SDK
+      - name: Setup Android SDK 36
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            "platforms;android-35" \
-            "build-tools;35.0.0" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
             "platform-tools"
 
       - name: Install Dependencies
@@ -51,29 +53,38 @@ jobs:
           if [ ! -f "android/gradlew" ] || \
              [ ! -f "android/settings.gradle" ] || \
              [ ! -f "android/gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo "Android platform incomplete."
+
+            echo "Android platform incomplete. Regenerating..."
             rm -rf android
             npx cap add android
           fi
 
+          # Set compile SDK to 36
           if [ -f "android/variables.gradle" ]; then
-            sed -i 's/compileSdkVersion = [0-9]*/compileSdkVersion = 35/g' android/variables.gradle
-            sed -i 's/targetSdkVersion = [0-9]*/targetSdkVersion = 35/g' android/variables.gradle
+            sed -i 's/compileSdkVersion = [0-9]*/compileSdkVersion = 36/g' android/variables.gradle
           fi
 
+          # Fix Google services check
           if [ -f "android/app/build.gradle" ]; then
             sed -i 's/servicesJSON.text/servicesJSON.exists()/g' android/app/build.gradle
           fi
 
+          # Force Gradle 8.13
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
-            sed -i 's/-all.zip/-bin.zip/g' android/gradle/wrapper/gradle-wrapper.properties
+            sed -i 's/gradle-[0-9.]*-\(all\|bin\)\.zip/gradle-8.13-bin.zip/' android/gradle/wrapper/gradle-wrapper.properties
+
             if ! grep -q "networkTimeout" android/gradle/wrapper/gradle-wrapper.properties; then
               echo "networkTimeout=60000" >> android/gradle/wrapper/gradle-wrapper.properties
             fi
           fi
 
+          # Synchronize Capacitor
           npx cap sync android
+
           chmod +x android/gradlew
+
+          # Verify Gradle wrapper version
+          grep distributionUrl android/gradle/wrapper/gradle-wrapper.properties
 
       - name: Build Android Debug APK
         run: |
@@ -83,15 +94,20 @@ jobs:
       - name: Locate and Collect APK
         run: |
           mkdir -p release-output
-          APK_FILE=$(find android/app/build/outputs/apk -name "*debug*.apk" ! -name "*unaligned*.apk" | head -n 1)
+
+          APK_FILE=$(find android/app/build/outputs/apk \
+            -name "*debug*.apk" \
+            ! -name "*unaligned*.apk" | head -n 1)
 
           if [ -z "$APK_FILE" ]; then
             echo "ERROR: No APK was generated!"
+            find android -name "*.apk"
             exit 1
           fi
 
+          echo "APK successfully generated: $APK_FILE"
+
           cp "$APK_FILE" release-output/XstreamPad-Xbox-Roblox.apk
-          echo "APK successfully collected."
 
       - name: Upload APK as Workflow Artifact
         uses: actions/upload-artifact@v4
@@ -107,6 +123,13 @@ jobs:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v1.0.{0}', github.run_number) }}
           name: XstreamPad Xbox Controller APK v1.0.${{ github.run_number }}
           body: |
-            XstreamPad Xbox Controller APK
-            Download and install the APK on your Android phone.
+            # XstreamPad Xbox Controller
+
+            Download the Android APK below.
+
+            Features:
+            - Xbox-style controller layout
+            - Landscape orientation
+            - Roblox gamepad controls
+            - Touch feedback and haptics
           files: release-output/XstreamPad-Xbox-Roblox.apk
