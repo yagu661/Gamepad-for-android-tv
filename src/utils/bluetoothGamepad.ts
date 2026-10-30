@@ -69,8 +69,8 @@ export function encodeHidGamepadReport(buttons: GamepadButtons, axes: GamepadAxe
   if (buttons.l3 || buttons.shiftLock) buttonsMask |= (1 << 10);
   // Bit 11: Right Stick Click (R3)
   if (buttons.r3) buttonsMask |= (1 << 11);
-  // Bit 12: Guide (Xbox Nexus)
-  if (buttons.start) buttonsMask |= (1 << 12);
+  // Bit 12: Guide (Xbox Nexus button)
+  if (buttons.guide) buttonsMask |= (1 << 12);
   // Bit 13: Emote
   if (buttons.emote) buttonsMask |= (1 << 13);
   // Bit 14: Turbo

@@ -74,10 +74,7 @@ export const VirtualStick: React.FC<VirtualStickProps> = ({
       posY = (dy / dist) * maxDistance;
       normX = dx / dist;
       normY = dy / dist;
-      if (!wasAtMaxRef.current) {
-        wasAtMaxRef.current = true;
-        triggerHaptic(8, hapticEnabled, hapticStrength);
-      }
+      wasAtMaxRef.current = true;
     } else {
       wasAtMaxRef.current = false;
       const magnitude = dist / maxDistance;

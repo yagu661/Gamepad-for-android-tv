@@ -168,7 +168,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             <div className="space-y-1">
               <div className="flex justify-between text-[11px] text-zinc-400">
-                <span>Left Stick Deadzone (Drift prevention)</span>
+                <span>Left Stick Deadzone (Character Drift)</span>
                 <span className="font-mono text-white font-bold">{Math.round(settings.leftStickDeadzone * 100)}%</span>
               </div>
               <input
@@ -178,7 +178,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 step="0.01"
                 value={settings.leftStickDeadzone}
                 onChange={(e) => update({ leftStickDeadzone: parseFloat(e.target.value) })}
-                className="w-full accent-red-600 cursor-pointer"
+                className="w-full accent-emerald-500 cursor-pointer"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex justify-between text-[11px] text-zinc-400">
+                <span>Right Stick Deadzone (Camera Drift)</span>
+                <span className="font-mono text-white font-bold">{Math.round((settings.rightStickDeadzone ?? 0.08) * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0.02"
+                max="0.25"
+                step="0.01"
+                value={settings.rightStickDeadzone ?? 0.08}
+                onChange={(e) => update({ rightStickDeadzone: parseFloat(e.target.value) })}
+                className="w-full accent-sky-400 cursor-pointer"
               />
             </div>
 

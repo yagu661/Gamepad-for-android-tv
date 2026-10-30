@@ -52,6 +52,7 @@ const DEFAULT_SETTINGS: ControllerSettings = {
   audioFeedback: true,
   audioVolume: 0.5,
   leftStickDeadzone: 0.08,
+  rightStickDeadzone: 0.08,
   rightStickSensitivity: 1.25,
   cursorSensitivity: 1.5,
   invertY: false,
@@ -121,6 +122,7 @@ export const GamepadController: React.FC<GamepadControllerProps> = ({
     dpadRight: false,
     start: false,
     select: false,
+    guide: false,
     jump: false,
     turbo: false,
     sprint: false,
@@ -268,7 +270,21 @@ export const GamepadController: React.FC<GamepadControllerProps> = ({
 
   const setButtonState = useCallback((btn: keyof GamepadButtons, pressed: boolean, sound: any = 'click') => {
     if (pressed) {
-      triggerHaptic(14, settings.vibration, settings.vibrationStrength);
+      // Roblox-specific haptics:
+      // Jump (A/Jump): crisp short pulse (15ms)
+      // Interaction (X / Y): slightly punchier pulse (22ms)
+      // Triggers & Bumpers: snappy crisp pulse (18ms)
+      // Standard D-pad & other buttons: subtle tick (10ms)
+      let hapticDuration = 10;
+      if (btn === 'a' || btn === 'jump') {
+        hapticDuration = 15;
+      } else if (btn === 'x' || btn === 'y') {
+        hapticDuration = 22;
+      } else if (btn === 'l1' || btn === 'r1' || btn === 'l2' || btn === 'r2') {
+        hapticDuration = 18;
+      }
+
+      triggerHaptic(hapticDuration, settings.vibration, settings.vibrationStrength);
       if (settings.audioFeedback) playButtonSound(sound, settings.audioVolume);
     }
 
@@ -706,19 +722,20 @@ export const GamepadController: React.FC<GamepadControllerProps> = ({
           <div className="flex flex-col items-center justify-center gap-3">
             {/* Iconic Glowing Xbox Nexus Jewel Button */}
             <button
-              onClick={() => {
-                triggerHaptic([30, 20, 30], settings.vibration, settings.vibrationStrength);
-                if (settings.audioFeedback) playButtonSound('menu', settings.audioVolume);
-                setButtonState('start', true, 'menu');
-                setTimeout(() => setButtonState('start', false), 200);
-              }}
-              className="relative w-14 h-14 rounded-full flex items-center justify-center transition-transform active:scale-90 shadow-2xl cursor-pointer"
+              {...makeButtonTouchProps('guide', 'menu')}
+              className={`relative w-14 h-14 rounded-full flex items-center justify-center transition-transform active:scale-90 shadow-2xl cursor-pointer ${
+                activeButtonsVisual['guide'] ? 'scale-95' : ''
+              }`}
               style={{
-                background: 'radial-gradient(circle at 35% 35%, #ffffff, #d4d4d8 60%, #a1a1aa 100%)',
-                boxShadow: '0 0 30px rgba(255,255,255,0.8), 0 0 60px rgba(16,185,129,0.4)',
+                background: activeButtonsVisual['guide']
+                  ? 'radial-gradient(circle at 35% 35%, #10b981, #059669 60%, #047857 100%)'
+                  : 'radial-gradient(circle at 35% 35%, #ffffff, #d4d4d8 60%, #a1a1aa 100%)',
+                boxShadow: activeButtonsVisual['guide']
+                  ? '0 0 35px rgba(16,185,129,0.9), 0 0 60px rgba(16,185,129,0.6)'
+                  : '0 0 30px rgba(255,255,255,0.8), 0 0 60px rgba(16,185,129,0.4)',
                 border: '2px solid rgba(255,255,255,0.95)'
               }}
-              title="Xbox Guide / Roblox ESC"
+              title="Xbox Guide / Home Button"
             >
               <div className="relative w-7 h-7 flex items-center justify-center">
                 <div className="absolute w-6 h-6 border-t-2 border-b-2 border-black/80 rounded-full transform rotate-45" />
@@ -849,6 +866,7 @@ export const GamepadController: React.FC<GamepadControllerProps> = ({
                 label="RS"
                 subLabel="LOOK"
                 size={isLandscape ? (window.innerHeight < 450 ? 104 : 120) : 100}
+                deadzone={settings.rightStickDeadzone}
                 sensitivity={settings.rightStickSensitivity}
                 invertY={settings.invertY}
                 hapticEnabled={settings.vibration}

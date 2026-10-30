@@ -40,6 +40,7 @@ export interface GamepadButtons {
   dpadRight: boolean; // Slot 2
   start: boolean; // Xbox Menu / Roblox ESC
   select: boolean; // Xbox View / Player list (Tab)
+  guide: boolean; // Xbox Nexus Guide button
   jump: boolean; // Dedicated big jump button
   turbo: boolean; // Fast auto-repeat
   sprint: boolean; // Shift / Fast walk
@@ -76,6 +77,7 @@ export interface ControllerSettings {
   audioFeedback: boolean;
   audioVolume: number; // 0 to 1
   leftStickDeadzone: number;
+  rightStickDeadzone: number;
   rightStickSensitivity: number;
   cursorSensitivity: number;
   invertY: boolean;
