@@ -316,24 +316,32 @@ export const GamepadController: React.FC<GamepadControllerProps> = ({
   };
 
   const makeButtonTouchProps = (btn: keyof GamepadButtons, soundType: any = 'click') => ({
-    onPointerDown: (e: React.PointerEvent) => {
+    onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => {
       e.preventDefault();
       e.stopPropagation();
+      try {
+        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      } catch {}
       setButtonState(btn, true, soundType);
     },
-    onPointerUp: (e: React.PointerEvent) => {
+    onPointerUp: (e: React.PointerEvent<HTMLButtonElement>) => {
       e.preventDefault();
       e.stopPropagation();
+      try {
+        if ((e.target as HTMLElement).hasPointerCapture(e.pointerId)) {
+          (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+        }
+      } catch {}
       setButtonState(btn, false);
     },
-    onPointerCancel: (e: React.PointerEvent) => {
+    onPointerCancel: (e: React.PointerEvent<HTMLButtonElement>) => {
       e.preventDefault();
       e.stopPropagation();
-      setButtonState(btn, false);
-    },
-    onPointerLeave: (e: React.PointerEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+      try {
+        if ((e.target as HTMLElement).hasPointerCapture(e.pointerId)) {
+          (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+        }
+      } catch {}
       setButtonState(btn, false);
     },
     className: 'select-none touch-none',
@@ -804,20 +812,20 @@ export const GamepadController: React.FC<GamepadControllerProps> = ({
           {/* RIGHT WING: UPPER RIGHT ABXY CLUSTER + LOWER RIGHT STICK (RS) */}
           <div className="flex flex-col items-center justify-around h-full">
             {/* UPPER-RIGHT: OFFICIAL XBOX COLORED ABXY DIAMOND BUTTONS */}
-            <div className="relative w-28 h-28 flex items-center justify-center select-none touch-none">
+            <div className="relative w-32 h-32 flex items-center justify-center select-none touch-none">
               <div className="absolute inset-1 rounded-3xl bg-zinc-950 border border-zinc-800 transform rotate-45 pointer-events-none shadow-inner" />
 
               {/* Y BUTTON (Top - Canary Yellow #facc15 - Backpack / `) */}
               <button
                 {...makeButtonTouchProps('y', 'click')}
-                className={`absolute top-0 w-9 h-9 rounded-full flex flex-col items-center justify-center border-2 shadow-xl transition-transform active:scale-90 ${
+                className={`absolute top-0 w-10 h-10 rounded-full flex flex-col items-center justify-center border-2 shadow-xl transition-transform active:scale-90 ${
                   activeButtonsVisual['y']
                     ? 'bg-amber-400 border-amber-200 text-black shadow-[0_0_20px_#facc15] scale-95'
-                    : 'bg-zinc-950 border-amber-500/80 text-amber-400'
+                    : 'bg-zinc-950 border-amber-500 text-amber-400'
                 }`}
               >
                 <span className="font-black text-sm leading-none font-sans">Y</span>
-                <span className="text-[5px] font-mono opacity-80">INV</span>
+                <span className="text-[6px] font-mono opacity-80">INV</span>
               </button>
 
               {/* A BUTTON (Bottom - Xbox Emerald Green #22c55e - JUMP) */}
@@ -836,27 +844,27 @@ export const GamepadController: React.FC<GamepadControllerProps> = ({
               {/* X BUTTON (Left - Royal Blue #38bdf8 - Interact / 'E') */}
               <button
                 {...makeButtonTouchProps('x', 'click')}
-                className={`absolute left-0 w-9 h-9 rounded-full flex flex-col items-center justify-center border-2 shadow-xl transition-transform active:scale-90 ${
+                className={`absolute left-0 w-10 h-10 rounded-full flex flex-col items-center justify-center border-2 shadow-xl transition-transform active:scale-90 ${
                   activeButtonsVisual['x']
                     ? 'bg-sky-400 border-sky-200 text-black shadow-[0_0_20px_#38bdf8] scale-95'
-                    : 'bg-zinc-950 border-sky-500/80 text-sky-400'
+                    : 'bg-zinc-950 border-sky-500 text-sky-400'
                 }`}
               >
                 <span className="font-black text-sm leading-none font-sans">X</span>
-                <span className="text-[5px] font-mono opacity-80">ACT</span>
+                <span className="text-[6px] font-mono opacity-80">ACT</span>
               </button>
 
               {/* B BUTTON (Right - Crimson Red #ef4444 - Back / Crouch) */}
               <button
                 {...makeButtonTouchProps('b', 'click')}
-                className={`absolute right-0 w-9 h-9 rounded-full flex flex-col items-center justify-center border-2 shadow-xl transition-transform active:scale-90 ${
+                className={`absolute right-0 w-10 h-10 rounded-full flex flex-col items-center justify-center border-2 shadow-xl transition-transform active:scale-90 ${
                   activeButtonsVisual['b']
                     ? 'bg-rose-500 border-rose-200 text-white shadow-[0_0_20px_#ef4444] scale-95'
-                    : 'bg-zinc-950 border-rose-500/80 text-rose-400'
+                    : 'bg-zinc-950 border-rose-500 text-rose-400'
                 }`}
               >
                 <span className="font-black text-sm leading-none font-sans">B</span>
-                <span className="text-[5px] font-mono opacity-80">BACK</span>
+                <span className="text-[6px] font-mono opacity-80">BACK</span>
               </button>
             </div>
 
