@@ -31,14 +31,22 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
+      - name: Setup Android SDK Platform 35
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
+
       - name: Install npm dependencies
         run: npm install
 
       - name: Build Web Application
         run: npm run build
 
-      - name: Sync Capacitor Android Project
+      - name: Ensure Capacitor Android Platform Exists
         run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
           npx cap sync android
 
       - name: Grant Execute Permission to Gradlew
@@ -47,7 +55,7 @@ jobs:
       - name: Build Android Debug APK with Gradle
         run: |
           cd android
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Prepare APK for Release
         run: |
@@ -77,6 +85,7 @@ jobs:
             - **`XstreamPad-Xbox-Roblox.apk`** (Ready to install on Android phones)
             
             #### ✨ Highlights:
+            - **Auto-Rotates to Landscape**: Immediately locks into landscape mode on launch.
             - **Authentic Xbox Controller Layout**: Asymmetric thumbsticks, Xbox colored ABXY buttons, Xbox Guide/Nexus button, View & Menu buttons.
             - **Roblox Obby Ready**: Dedicated A/Spacebar jump, camera orbit right stick, inventory, and quick emote wheel.
             - **Ultra-low Latency**: Direct WebRTC / WebSocket link to your Airtel Xstream TV box.
