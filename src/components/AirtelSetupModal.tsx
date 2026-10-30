@@ -1,5 +1,24 @@
-import React, { useState } from 'react';
-import { Tv, Wifi, Bluetooth, Terminal, Gamepad2, X, Check, Copy, ExternalLink, HelpCircle, ShieldCheck } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  Bluetooth,
+  Wifi,
+  Terminal,
+  Tv,
+  X,
+  CheckCircle2,
+  AlertTriangle,
+  RefreshCw,
+  Power,
+  Radio,
+  ExternalLink,
+  ShieldCheck,
+  ChevronRight,
+  Info
+} from 'lucide-react';
+import { NativeBluetoothGamepad, BluetoothDeviceInfo, BluetoothPluginStatus } from '../utils/bluetoothGamepad';
+import { connectionManager } from '../utils/connection';
+import { RoomConnectionStatus } from '../types/gamepad';
+import { triggerHaptic, playButtonSound } from '../utils/audio';
 
 interface AirtelSetupModalProps {
   isOpen: boolean;
@@ -7,397 +26,441 @@ interface AirtelSetupModalProps {
   roomCode: string;
 }
 
-export const AirtelSetupModal: React.FC<AirtelSetupModalProps> = ({ isOpen, onClose, roomCode }) => {
-  const [activeTab, setActiveTab] = useState<'browser' | 'adb' | 'bluetooth' | 'mantis' | 'shortcuts'>('browser');
-  const [copiedText, setCopiedText] = useState<string | null>(null);
-  const [boxIp, setBoxIp] = useState('192.168.1.100');
+export const AirtelSetupModal: React.FC<AirtelSetupModalProps> = ({
+  isOpen,
+  onClose,
+  roomCode,
+}) => {
+  const [activeTab, setActiveTab] = useState<'bluetooth' | 'wifi' | 'adb'>('bluetooth');
+  const [status, setStatus] = useState<RoomConnectionStatus>(connectionManager.getStatus());
+
+  // Bluetooth HID state
+  const [btStatus, setBtStatus] = useState<BluetoothPluginStatus | null>(null);
+  const [pairedDevices, setPairedDevices] = useState<BluetoothDeviceInfo[]>([]);
+  const [btLoading, setBtLoading] = useState(false);
+  const [btMessage, setBtMessage] = useState<string>('');
+
+  // Wi-Fi Local IP state
+  const [customTvIp, setCustomTvIp] = useState<string>(status.tvHost || '');
+  const [testingWifi, setTestingWifi] = useState(false);
+  const [wifiResult, setWifiResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  // ADB state
+  const [adbHost, setAdbHost] = useState('192.168.1.100:5555');
+
+  useEffect(() => {
+    const unsub = connectionManager.subscribeStatus(setStatus);
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) {
+      checkBluetoothState();
+    }
+  }, [isOpen]);
+
+  const checkBluetoothState = async () => {
+    try {
+      setBtLoading(true);
+      const res = await NativeBluetoothGamepad.checkSupport();
+      setBtStatus(res);
+      if (res.enabled) {
+        const bonded = await NativeBluetoothGamepad.getBondedDevices();
+        setPairedDevices(bonded.devices || []);
+      }
+    } catch (e: any) {
+      setBtStatus({
+        supported: false,
+        enabled: false,
+        isRegistered: false,
+        connected: false,
+        reason: 'Native Bluetooth HID plugin active on Android APK builds. In browser, use Wi-Fi Direct or WebRTC mode.'
+      });
+    } finally {
+      setBtLoading(false);
+    }
+  };
+
+  const handleRegisterGamepad = async () => {
+    try {
+      setBtLoading(true);
+      setBtMessage('Registering phone as Xbox Bluetooth Gamepad...');
+      const res = await NativeBluetoothGamepad.registerGamepad();
+      if (res.success) {
+        setBtMessage('Phone registered as Xbox Gamepad! Making discoverable for Airtel TV...');
+        await NativeBluetoothGamepad.makeDiscoverable();
+        setBtMessage('Discoverable for 300s. Now open Airtel Box Settings > Remotes & Accessories > Add Accessory');
+        triggerHaptic([30, 40], true);
+      }
+      checkBluetoothState();
+    } catch (e: any) {
+      setBtMessage('Registration error: ' + (e.message || e));
+    } finally {
+      setBtLoading(false);
+    }
+  };
+
+  const handleConnectBtDevice = async (address: string) => {
+    try {
+      setBtLoading(true);
+      setBtMessage(`Connecting HID channel to ${address}...`);
+      const res = await NativeBluetoothGamepad.connectDevice({ address });
+      setBtMessage(`Connected to ${res.targetDevice || 'Airtel TV'}!`);
+      triggerHaptic([20, 20, 40], true);
+      checkBluetoothState();
+    } catch (e: any) {
+      setBtMessage('Connection error: ' + (e.message || e));
+    } finally {
+      setBtLoading(false);
+    }
+  };
+
+  const handleDisconnectBt = async () => {
+    try {
+      await NativeBluetoothGamepad.disconnect();
+      setBtMessage('Disconnected Bluetooth Gamepad');
+      checkBluetoothState();
+    } catch {}
+  };
+
+  const handleTestWifi = async () => {
+    if (!customTvIp.trim()) {
+      setWifiResult({ ok: false, msg: 'Please enter your Airtel TV box IP address (e.g. 192.168.1.105)' });
+      return;
+    }
+    setTestingWifi(true);
+    setWifiResult(null);
+
+    const clean = customTvIp.replace(/^https?:\/\//, '').replace(/^wss?:\/\//, '').replace(/\/.*$/, '');
+    const target = clean.includes(':') ? clean : `${clean}:3000`;
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch(`http://${target}/api/health`, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const json = await res.json();
+        setWifiResult({ ok: true, msg: `Reachable! Active TV Receiver confirmed on ${target}` });
+        connectionManager.setCustomTvHost(target);
+        triggerHaptic([20, 30], true);
+      } else {
+        setWifiResult({ ok: false, msg: `TV responded with HTTP ${res.status}. Is the TV app open?` });
+      }
+    } catch (err: any) {
+      setWifiResult({
+        ok: false,
+        msg: `Could not reach ${target}. Make sure both phone & Airtel box are on the same Wi-Fi network and port 3000 is open.`
+      });
+    } finally {
+      setTestingWifi(false);
+    }
+  };
 
   if (!isOpen) return null;
 
-  const handleCopy = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedText(id);
-    setTimeout(() => setCopiedText(null), 2000);
-  };
-
-  const currentAppUrl = typeof window !== 'undefined' ? window.location.origin : 'https://...';
-
   return (
     <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 md:p-6 overflow-y-auto">
-      <div className="bg-zinc-900 border border-zinc-700/80 rounded-2xl w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="bg-zinc-900 border border-zinc-700/80 rounded-3xl w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
         {/* Header */}
         <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-950/70">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-red-600/20 border border-red-500/30 flex items-center justify-center text-red-500">
+            <div className="w-10 h-10 rounded-2xl bg-red-600/20 border border-red-500/30 flex items-center justify-center text-red-500">
               <Tv className="w-5 h-5" />
             </div>
             <div>
               <h2 className="font-bold text-white text-base md:text-lg flex items-center gap-2">
-                Airtel Xstream Box Setup Guide
-                <span className="text-[10px] bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded-full font-semibold uppercase">
-                  Roblox TV
+                Airtel Xstream Box (HY0001) Connection
+                <span className="text-[10px] bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded-full font-bold uppercase">
+                  Real Hardware
                 </span>
               </h2>
               <p className="text-xs text-zinc-400">
-                Connect your phone gamepad to play Roblox on Airtel Xstream Smart Box
+                Samsung Galaxy M30s &rarr; Airtel Xstream Smart TV
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800 transition-colors"
+            className="p-2 text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Tab Navigation */}
-        <div className="flex border-b border-zinc-800 bg-zinc-950/40 p-1.5 gap-1 overflow-x-auto text-xs">
-          <button
-            onClick={() => setActiveTab('browser')}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
-              activeTab === 'browser'
-                ? 'bg-red-600 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
-            }`}
-          >
-            <Tv className="w-3.5 h-3.5" />
-            1. TV Web Receiver (Zero Setup)
-          </button>
-          <button
-            onClick={() => setActiveTab('adb')}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
-              activeTab === 'adb'
-                ? 'bg-red-600 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
-            }`}
-          >
-            <Terminal className="w-3.5 h-3.5" />
-            2. WiFi ADB Bridge (Direct APK)
-          </button>
+        {/* Tab Navigation: Real 3 Hardware Connection Modes */}
+        <div className="flex border-b border-zinc-800 bg-zinc-950/50 p-1.5 gap-1.5 overflow-x-auto text-xs">
           <button
             onClick={() => setActiveTab('bluetooth')}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold transition-all whitespace-nowrap ${
               activeTab === 'bluetooth'
-                ? 'bg-red-600 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
             }`}
           >
-            <Bluetooth className="w-3.5 h-3.5" />
-            3. Bluetooth HID Mode
+            <Bluetooth className="w-4 h-4 text-blue-300" />
+            <span>Priority 1: Bluetooth Gamepad HID</span>
           </button>
+
           <button
-            onClick={() => setActiveTab('mantis')}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
-              activeTab === 'mantis'
-                ? 'bg-red-600 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
+            onClick={() => setActiveTab('wifi')}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold transition-all whitespace-nowrap ${
+              activeTab === 'wifi'
+                ? 'bg-emerald-600 text-white shadow-md'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
             }`}
           >
-            <Gamepad2 className="w-3.5 h-3.5" />
-            4. Keymapper Overlay
+            <Wifi className="w-4 h-4 text-emerald-300" />
+            <span>Priority 2: Local Wi-Fi (Same Network)</span>
           </button>
+
           <button
-            onClick={() => setActiveTab('shortcuts')}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
-              activeTab === 'shortcuts'
-                ? 'bg-red-600 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
+            onClick={() => setActiveTab('adb')}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold transition-all whitespace-nowrap ${
+              activeTab === 'adb'
+                ? 'bg-amber-600 text-white shadow-md'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
             }`}
           >
-            <HelpCircle className="w-3.5 h-3.5" />
-            Roblox Keymap
+            <Terminal className="w-4 h-4 text-amber-300" />
+            <span>Priority 3: Wireless ADB Bridge</span>
           </button>
         </div>
 
-        {/* Tab Content */}
-        <div className="p-4 md:p-5 overflow-y-auto space-y-4 text-sm text-zinc-300">
-          {activeTab === 'browser' && (
-            <div className="space-y-4">
-              <div className="p-3.5 bg-red-950/30 border border-red-500/20 rounded-xl">
-                <span className="font-semibold text-red-400 flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-red-400" />
-                  Recommended: Fastest, No Sideloading Required
-                </span>
-                <p className="text-xs text-zinc-300 mt-1">
-                  You can open this receiver directly in any browser installed on your Airtel Xstream setup box (such as TV Bro, JioPages, or Puffin TV).
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex gap-3 items-start">
-                  <div className="w-6 h-6 rounded-full bg-zinc-800 text-white flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
-                    1
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-white">Open Web Browser on Airtel Box</h4>
-                    <p className="text-xs text-zinc-400 mt-0.5">
-                      On your Airtel Xstream Box, launch Google Play Store and install <strong>TV Bro</strong> or <strong>JioPages</strong> (both have smooth TV remote navigation).
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex gap-3 items-start">
-                  <div className="w-6 h-6 rounded-full bg-zinc-800 text-white flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
-                    2
-                  </div>
-                  <div className="w-full">
-                    <h4 className="font-semibold text-white">Navigate to this App URL</h4>
-                    <p className="text-xs text-zinc-400 mt-0.5 mb-2">
-                      Enter the app URL on the TV browser:
-                    </p>
-                    <div className="flex items-center gap-2 p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-xs font-mono text-emerald-400">
-                      <span className="truncate flex-1">{currentAppUrl}</span>
-                      <button
-                        onClick={() => handleCopy(currentAppUrl, 'appUrl')}
-                        className="p-1 hover:text-white text-zinc-400"
-                        title="Copy URL"
-                      >
-                        {copiedText === 'appUrl' ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex gap-3 items-start">
-                  <div className="w-6 h-6 rounded-full bg-zinc-800 text-white flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
-                    3
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-white">Switch to TV Receiver Mode</h4>
-                    <p className="text-xs text-zinc-400 mt-0.5">
-                      Select <strong>"TV Screen / Roblox Test Hub"</strong> at the top. It will display a big QR code and your 4-letter pairing PIN.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex gap-3 items-start">
-                  <div className="w-6 h-6 rounded-full bg-zinc-800 text-white flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
-                    4
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-white">Scan or Enter Room Code</h4>
-                    <p className="text-xs text-zinc-400 mt-0.5">
-                      On your phone, point camera at the TV QR code. Your phone instantly links up with zero typing and ultra-low WebRTC latency!
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'adb' && (
-            <div className="space-y-4">
-              <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-xl space-y-2">
-                <h4 className="font-semibold text-white text-xs uppercase tracking-wider text-red-400">
-                  Direct Android TV Input Injection via WiFi ADB
-                </h4>
-                <p className="text-xs text-zinc-400">
-                  If you have sideloaded the official <strong>Roblox APK</strong> on your Airtel Xstream Box, you can transmit gamepad events directly into Android OS without root:
-                </p>
-              </div>
-
-              <div className="space-y-2.5">
-                <div className="p-3 bg-zinc-950/80 border border-zinc-800 rounded-lg space-y-1">
-                  <div className="text-xs font-bold text-white">Step 1: Enable Developer Options on Airtel Box</div>
-                  <div className="text-xs text-zinc-400">
-                    Airtel Box Home &rarr; <span className="text-zinc-200">Settings (Gear icon)</span> &rarr; <span className="text-zinc-200">Device Preferences</span> &rarr; <span className="text-zinc-200">About</span> &rarr; Click <strong>"Android TV OS build"</strong> 7 times until it says "You are now a developer!".
-                  </div>
-                </div>
-
-                <div className="p-3 bg-zinc-950/80 border border-zinc-800 rounded-lg space-y-1">
-                  <div className="text-xs font-bold text-white">Step 2: Turn on Network Debugging</div>
-                  <div className="text-xs text-zinc-400">
-                    Go back to <span className="text-zinc-200">Device Preferences &rarr; Developer Options</span> &rarr; Enable <strong>"Network ADB Debugging"</strong> (or USB Debugging).
-                  </div>
-                </div>
-
-                <div className="p-3 bg-zinc-950/80 border border-zinc-800 rounded-lg space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white">Step 3: Enter Airtel Box IP Address</span>
-                    <span className="text-[10px] text-zinc-400">Find in Settings &rarr; Network</span>
-                  </div>
-                  <input
-                    type="text"
-                    value={boxIp}
-                    onChange={(e) => setBoxIp(e.target.value)}
-                    placeholder="e.g. 192.168.1.100"
-                    className="w-full bg-zinc-900 border border-zinc-700 px-3 py-1.5 rounded-lg text-xs font-mono text-white focus:outline-none focus:border-red-500"
-                  />
-                  <div className="text-[11px] text-zinc-400">
-                    Run this command on your PC or local terminal bridge connected to the same Wi-Fi:
-                  </div>
-                  <div className="flex items-center justify-between p-2 bg-zinc-900 border border-zinc-700 rounded font-mono text-xs text-emerald-400">
-                    <code>adb connect {boxIp}:5555</code>
-                    <button
-                      onClick={() => handleCopy(`adb connect ${boxIp}:5555`, 'adbConnect')}
-                      className="text-zinc-400 hover:text-white"
-                    >
-                      {copiedText === 'adbConnect' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="p-3 bg-zinc-950/80 border border-zinc-800 rounded-lg space-y-1.5">
-                  <div className="text-xs font-bold text-white">Standard Android TV Keyevents Mapped by XstreamPad:</div>
-                  <div className="grid grid-cols-2 gap-1.5 text-[11px] font-mono text-zinc-400">
-                    <div className="bg-zinc-900 p-1.5 rounded">Jump (A): <code>KEYCODE_BUTTON_A (96)</code></div>
-                    <div className="bg-zinc-900 p-1.5 rounded">Back (B): <code>KEYCODE_BUTTON_B (97)</code></div>
-                    <div className="bg-zinc-900 p-1.5 rounded">Action (X): <code>KEYCODE_BUTTON_X (99)</code></div>
-                    <div className="bg-zinc-900 p-1.5 rounded">Inv (Y): <code>KEYCODE_BUTTON_Y (100)</code></div>
-                    <div className="bg-zinc-900 p-1.5 rounded">Click (R1): <code>KEYCODE_BUTTON_R1 (103)</code></div>
-                    <div className="bg-zinc-900 p-1.5 rounded">Sprint (L1): <code>KEYCODE_BUTTON_L1 (102)</code></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
+        {/* Content Body */}
+        <div className="p-4 sm:p-5 flex-1 overflow-y-auto space-y-4 text-xs text-zinc-300">
+          {/* TAB 1: BLUETOOTH ACCESSORY MODE (HIGHEST PRIORITY) */}
           {activeTab === 'bluetooth' && (
             <div className="space-y-4">
-              <div className="p-3.5 bg-blue-950/30 border border-blue-500/20 rounded-xl space-y-1">
-                <span className="font-semibold text-blue-400 flex items-center gap-2">
-                  <Bluetooth className="w-4 h-4 text-blue-400" />
-                  Turn Phone into Hardware Bluetooth Controller
-                </span>
-                <p className="text-xs text-zinc-300">
-                  Android phones support Bluetooth HID Gamepad profile. The Airtel Xstream Box will detect your phone just like an Xbox Wireless Controller!
-                </p>
+              <div className="p-3.5 bg-blue-950/30 border border-blue-500/40 rounded-2xl flex items-start gap-3">
+                <Bluetooth className="w-6 h-6 text-blue-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <span className="font-bold text-white text-sm block">
+                    Native Android Bluetooth HID Gamepad Emulation
+                  </span>
+                  <p className="text-zinc-300 leading-relaxed text-[11px]">
+                    Turns your Samsung Galaxy M30s into an actual physical <strong>Xbox Wireless Controller</strong> using Android 11's <code>BluetoothHidDevice</code> API. Your Airtel Xstream box detects it as a standard hardware gamepad.
+                  </p>
+                </div>
               </div>
 
-              <div className="space-y-3">
-                <div className="flex gap-3 items-start">
-                  <div className="w-6 h-6 rounded-full bg-zinc-800 text-white flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
-                    1
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-white">Install Bluetooth Gamepad HID App</h4>
-                    <p className="text-xs text-zinc-400 mt-0.5">
-                      On your phone from Google Play Store, install <strong>"Serverless Bluetooth Keyboard & Mouse"</strong> or <strong>"Bluetooth Gamepad"</strong>.
-                    </p>
-                  </div>
+              {/* Status Indicator */}
+              <div className="p-3 bg-zinc-950/80 rounded-2xl border border-zinc-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-zinc-200">Bluetooth HID State:</span>
+                  <button
+                    onClick={checkBluetoothState}
+                    disabled={btLoading}
+                    className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1 font-semibold"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${btLoading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </button>
                 </div>
 
-                <div className="flex gap-3 items-start">
-                  <div className="w-6 h-6 rounded-full bg-zinc-800 text-white flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
-                    2
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-white">On Airtel Xstream Box: Pair New Accessory</h4>
-                    <p className="text-xs text-zinc-400 mt-0.5">
-                      Go to <span className="text-zinc-200">Airtel Box Settings &rarr; Remotes & Accessories &rarr; Add Accessory</span>.
-                    </p>
-                  </div>
+                <div className="flex flex-wrap gap-2 text-[11px]">
+                  <span className={`px-2.5 py-1 rounded-lg font-bold border ${
+                    status.transport === 'bluetooth_hid'
+                      ? 'bg-blue-500/20 border-blue-400 text-blue-300'
+                      : 'bg-zinc-900 border-zinc-700 text-zinc-400'
+                  }`}>
+                    Connection: {status.transport === 'bluetooth_hid' ? `CONNECTED (${status.deviceName || 'Airtel TV'})` : 'DISCONNECTED'}
+                  </span>
+
+                  <span className={`px-2.5 py-1 rounded-lg font-bold border ${
+                    btStatus?.isRegistered
+                      ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                      : 'bg-zinc-900 border-zinc-700 text-zinc-400'
+                  }`}>
+                    HID Profile: {btStatus?.isRegistered ? 'REGISTERED AS XBOX' : 'NOT REGISTERED'}
+                  </span>
                 </div>
 
-                <div className="flex gap-3 items-start">
-                  <div className="w-6 h-6 rounded-full bg-zinc-800 text-white flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
-                    3
+                {btMessage && (
+                  <div className="p-2 rounded-xl bg-black/60 border border-blue-500/30 text-blue-300 font-mono text-[11px]">
+                    {btMessage}
                   </div>
-                  <div>
-                    <h4 className="font-semibold text-white">Select Your Phone & Confirm</h4>
-                    <p className="text-xs text-zinc-400 mt-0.5">
-                      Your phone will be recognized as a Wireless Game Controller. Roblox on Android TV will automatically detect Xbox controller inputs!
-                    </p>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  onClick={handleRegisterGamepad}
+                  disabled={btLoading}
+                  className="py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 disabled:opacity-50 text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg transition-all"
+                >
+                  <Radio className="w-4 h-4 animate-pulse" />
+                  <span>1. Start Bluetooth Pairing</span>
+                </button>
+
+                <button
+                  onClick={handleDisconnectBt}
+                  className="py-3 px-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-zinc-300 hover:text-white font-bold text-xs flex items-center justify-center gap-2 border border-zinc-700 transition-all"
+                >
+                  <Power className="w-4 h-4 text-red-400" />
+                  <span>Disconnect Bluetooth</span>
+                </button>
+              </div>
+
+              {/* Paired Devices List */}
+              <div className="p-3 bg-zinc-950/80 rounded-2xl border border-zinc-800 space-y-2">
+                <span className="font-bold text-zinc-200 block text-xs">
+                  Paired Devices on your Samsung Phone:
+                </span>
+                {pairedDevices.length === 0 ? (
+                  <p className="text-[11px] text-zinc-500 italic">
+                    No paired Bluetooth devices detected. Start pairing above, then look for "Xbox Wireless Gamepad" on your Airtel TV.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                    {pairedDevices.map((d) => (
+                      <div
+                        key={d.address}
+                        className={`p-2.5 rounded-xl border flex items-center justify-between text-xs transition-colors ${
+                          d.isXstream ? 'bg-red-950/40 border-red-500/50' : 'bg-zinc-900 border-zinc-800'
+                        }`}
+                      >
+                        <div>
+                          <div className="font-bold text-white flex items-center gap-1.5">
+                            {d.isXstream && <span className="text-[9px] bg-red-600 text-white px-1.5 py-0.5 rounded font-black">AIRTEL TV</span>}
+                            <span>{d.name}</span>
+                          </div>
+                          <span className="text-[10px] text-zinc-500 font-mono">{d.address}</span>
+                        </div>
+                        <button
+                          onClick={() => handleConnectBtDevice(d.address)}
+                          disabled={btLoading}
+                          className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-[11px]"
+                        >
+                          Connect HID
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                </div>
+                )}
+              </div>
+
+              {/* Exact Step-by-Step for Airtel Xstream Box */}
+              <div className="p-3.5 bg-black/50 border border-zinc-800 rounded-2xl space-y-2">
+                <span className="font-bold text-white flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-blue-400" />
+                  Exact Airtel Xstream Box TV Steps:
+                </span>
+                <ol className="list-decimal list-inside space-y-1 text-zinc-400 text-[11px] leading-relaxed">
+                  <li>Tap <strong>"1. Start Bluetooth Pairing"</strong> above on your Samsung phone.</li>
+                  <li>On your Airtel Xstream TV Box, take the remote and go to: <strong>Settings &rarr; Remotes &amp; Accessories &rarr; Add Accessory</strong>.</li>
+                  <li>Your Airtel Box will search and display <strong>"Xbox Wireless Gamepad"</strong>.</li>
+                  <li>Select it on your TV remote to pair. Once paired, your phone's thumbsticks and buttons immediately control the TV!</li>
+                </ol>
               </div>
             </div>
           )}
 
-          {activeTab === 'mantis' && (
+          {/* TAB 2: LOCAL WI-FI (SAME NETWORK) */}
+          {activeTab === 'wifi' && (
             <div className="space-y-4">
-              <div className="p-3.5 bg-emerald-950/30 border border-emerald-500/20 rounded-xl space-y-1">
-                <span className="font-semibold text-emerald-400 flex items-center gap-2">
-                  <Gamepad2 className="w-4 h-4 text-emerald-400" />
-                  Mantis Gamepad Pro / Octopus On-Screen Mapping
-                </span>
-                <p className="text-xs text-zinc-300">
-                  Because some Roblox Android games are touch-designed, keymappers let you place virtual buttons directly over the Roblox touch controls on the TV screen.
-                </p>
+              <div className="p-3.5 bg-emerald-950/30 border border-emerald-500/40 rounded-2xl flex items-start gap-3">
+                <Wifi className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <span className="font-bold text-white text-sm block">
+                    Same Wi-Fi Direct Communication (No Bluetooth Required)
+                  </span>
+                  <p className="text-zinc-300 leading-relaxed text-[11px]">
+                    Both your Samsung Galaxy M30s and your Airtel Xstream Box are on the same Wi-Fi. Enter your Airtel TV box's local IP address below to connect directly with low-latency WebRTC UDP channels.
+                  </p>
+                </div>
               </div>
 
-              <div className="space-y-3">
-                <div className="p-3 bg-zinc-950/80 border border-zinc-800 rounded-lg space-y-1.5">
-                  <div className="text-xs font-bold text-white">Recommended Screen Positions for Roblox:</div>
-                  <ul className="list-disc list-inside text-xs text-zinc-400 space-y-1">
-                    <li><strong>Movement Joystick (Left Stick):</strong> Bottom-left corner (covers virtual thumbstick).</li>
-                    <li><strong>Jump Button (A):</strong> Bottom-right round button.</li>
-                    <li><strong>Camera Pan (Right Stick):</strong> Upper right half of screen.</li>
-                    <li><strong>Tool Action (R1):</strong> Center-right screen tap.</li>
-                    <li><strong>Backpack (Y):</strong> Top-left inventory icon.</li>
-                  </ul>
+              {/* IP Input */}
+              <div className="p-3.5 bg-zinc-950/80 rounded-2xl border border-zinc-800 space-y-3">
+                <label className="font-bold text-white block">
+                  Airtel Xstream Box Local IP Address:
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={customTvIp}
+                    onChange={(e) => setCustomTvIp(e.target.value)}
+                    placeholder="e.g. 192.168.1.105:3000"
+                    className="flex-1 bg-black/80 border border-zinc-700 rounded-xl px-3 py-2 text-emerald-400 font-mono font-bold text-xs focus:outline-none focus:border-emerald-500"
+                  />
+                  <button
+                    onClick={handleTestWifi}
+                    disabled={testingWifi}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-black font-black text-xs rounded-xl flex items-center gap-1.5 shadow-md"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${testingWifi ? 'animate-spin' : ''}`} />
+                    <span>Test &amp; Connect</span>
+                  </button>
                 </div>
+
+                {wifiResult && (
+                  <div className={`p-2.5 rounded-xl border text-[11px] font-medium ${
+                    wifiResult.ok ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-300' : 'bg-red-950/60 border-red-500/60 text-red-300'
+                  }`}>
+                    {wifiResult.msg}
+                  </div>
+                )}
+
+                <div className="p-2.5 rounded-xl bg-black/40 border border-white/5 space-y-1">
+                  <span className="font-bold text-zinc-300 block text-[11px]">
+                    How to find your Airtel Xstream Box IP address:
+                  </span>
+                  <p className="text-zinc-400 text-[10px] leading-relaxed">
+                    On your Airtel TV remote: <strong>Settings &rarr; Network &amp; Internet &rarr; Tap your connected Wi-Fi name &rarr; IP Address</strong> (typically <code>192.168.1.xxx</code>).
+                  </p>
+                </div>
+              </div>
+
+              {/* PIN Fallback */}
+              <div className="p-3.5 bg-zinc-950/80 rounded-2xl border border-zinc-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white">TV Web Receiver Fallback:</span>
+                  <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded font-mono font-bold">
+                    PIN: {roomCode}
+                  </span>
+                </div>
+                <p className="text-zinc-400 text-[11px] leading-relaxed">
+                  Open any browser on your Airtel TV (JioPages TV, Puffin TV, or Chrome) and navigate to <code>{typeof window !== 'undefined' ? window.location.origin : 'https://...'}</code>. Enter the PIN above to pair instantly!
+                </p>
               </div>
             </div>
           )}
 
-          {activeTab === 'shortcuts' && (
-            <div className="space-y-3">
-              <h4 className="font-semibold text-white text-xs uppercase tracking-wider text-zinc-400">
-                Roblox Android TV Controller Button Chart
-              </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                <div className="p-2.5 bg-zinc-950 border border-zinc-800 rounded-lg flex items-center justify-between">
-                  <span className="font-medium text-emerald-400 flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500 flex items-center justify-center font-bold text-[10px]">A</span>
-                    Jump
+          {/* TAB 3: ANDROID ADB BRIDGE */}
+          {activeTab === 'adb' && (
+            <div className="space-y-4">
+              <div className="p-3.5 bg-amber-950/30 border border-amber-500/40 rounded-2xl flex items-start gap-3">
+                <Terminal className="w-6 h-6 text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <span className="font-bold text-white text-sm block">
+                    Wireless ADB Debugging Bridge (Truthful Requirements)
                   </span>
-                  <span className="text-zinc-400">Spacebar / Obstacle hop</span>
+                  <p className="text-zinc-300 leading-relaxed text-[11px]">
+                    Android TV boxes (like Airtel HY0001) do <strong>NOT</strong> accept raw ADB input injections over standard Wi-Fi without explicit Developer Options authorization.
+                  </p>
                 </div>
+              </div>
 
-                <div className="p-2.5 bg-zinc-950 border border-zinc-800 rounded-lg flex items-center justify-between">
-                  <span className="font-medium text-red-400 flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-red-500/20 border border-red-500 flex items-center justify-center font-bold text-[10px]">B</span>
-                    Back / Cancel
-                  </span>
-                  <span className="text-zinc-400">Close modal / Crouch</span>
-                </div>
+              <div className="p-3.5 bg-zinc-950/80 rounded-2xl border border-zinc-800 space-y-3">
+                <span className="font-bold text-white block">
+                  To Enable Wireless ADB on your Airtel Xstream Box:
+                </span>
+                <ol className="list-decimal list-inside space-y-1.5 text-zinc-300 text-[11px] leading-relaxed">
+                  <li>On your Airtel TV, open <strong>Settings &rarr; Device Preferences &rarr; About</strong>.</li>
+                  <li>Scroll down to <strong>Build</strong> and click the remote OK button <strong>7 times</strong> until it says <em>"You are now a developer!"</em>.</li>
+                  <li>Go back one screen into <strong>Developer Options</strong>.</li>
+                  <li>Turn on <strong>USB Debugging</strong> and <strong>Wireless Debugging</strong>.</li>
+                  <li>Note the IP and Port displayed under Wireless Debugging (usually port <code>5555</code>).</li>
+                </ol>
+              </div>
 
-                <div className="p-2.5 bg-zinc-950 border border-zinc-800 rounded-lg flex items-center justify-between">
-                  <span className="font-medium text-blue-400 flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-blue-500/20 border border-blue-500 flex items-center justify-center font-bold text-[10px]">X</span>
-                    Interact / Tool
-                  </span>
-                  <span className="text-zinc-400">Roblox 'E' trigger</span>
-                </div>
-
-                <div className="p-2.5 bg-zinc-950 border border-zinc-800 rounded-lg flex items-center justify-between">
-                  <span className="font-medium text-amber-400 flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-amber-500/20 border border-amber-500 flex items-center justify-center font-bold text-[10px]">Y</span>
-                    Backpack
-                  </span>
-                  <span className="text-zinc-400">Toggle inventory bar</span>
-                </div>
-
-                <div className="p-2.5 bg-zinc-950 border border-zinc-800 rounded-lg flex items-center justify-between">
-                  <span className="font-medium text-purple-400">R1 / RT</span>
-                  <span className="text-zinc-400">Primary action / Tool click</span>
-                </div>
-
-                <div className="p-2.5 bg-zinc-950 border border-zinc-800 rounded-lg flex items-center justify-between">
-                  <span className="font-medium text-purple-400">L1 / LT</span>
-                  <span className="text-zinc-400">Sprint / Zoom out</span>
-                </div>
-
-                <div className="p-2.5 bg-zinc-950 border border-zinc-800 rounded-lg flex items-center justify-between">
-                  <span className="font-medium text-zinc-300">Left Stick (LS)</span>
-                  <span className="text-zinc-400">Character 360 walk</span>
-                </div>
-
-                <div className="p-2.5 bg-zinc-950 border border-zinc-800 rounded-lg flex items-center justify-between">
-                  <span className="font-medium text-zinc-300">Right Stick (RS)</span>
-                  <span className="text-zinc-400">Camera 360 orbit</span>
-                </div>
-
-                <div className="p-2.5 bg-zinc-950 border border-zinc-800 rounded-lg flex items-center justify-between">
-                  <span className="font-medium text-zinc-300">D-Pad 1, 2, 3, 4</span>
-                  <span className="text-zinc-400">Quick select tool slots</span>
-                </div>
-
-                <div className="p-2.5 bg-zinc-950 border border-zinc-800 rounded-lg flex items-center justify-between">
-                  <span className="font-medium text-zinc-300">Start / Menu</span>
-                  <span className="text-zinc-400">Roblox Settings / Esc</span>
+              <div className="p-3 bg-red-950/40 border border-red-500/40 rounded-2xl flex items-start gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                <div className="text-[11px] text-zinc-300 leading-relaxed">
+                  <strong className="text-white block mb-0.5">Recommended: Use Priority 1 (Bluetooth Gamepad)</strong>
+                  Since you use your phone without a laptop, Bluetooth HID is 100% plug-and-play and requires zero developer settings or ADB command authorizations.
                 </div>
               </div>
             </div>
@@ -405,16 +468,17 @@ export const AirtelSetupModal: React.FC<AirtelSetupModalProps> = ({ isOpen, onCl
         </div>
 
         {/* Footer */}
-        <div className="p-3 border-t border-zinc-800 bg-zinc-950/70 flex items-center justify-between text-xs">
-          <div className="text-zinc-400 flex items-center gap-2">
-            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            Current Room Code: <strong className="text-white font-mono uppercase">{roomCode || 'NONE'}</strong>
+        <div className="p-4 border-t border-zinc-800 bg-zinc-950/80 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-[11px] text-zinc-400">
+            <span className={`w-2 h-2 rounded-full ${status.connected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+            <span>Transport: <strong className="text-white uppercase">{status.transport}</strong></span>
           </div>
+
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium transition-colors"
+            className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-black font-black rounded-xl text-xs shadow-md active:scale-95"
           >
-            Got it, Let's Play!
+            Done
           </button>
         </div>
       </div>

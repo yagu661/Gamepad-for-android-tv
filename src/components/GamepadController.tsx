@@ -372,8 +372,8 @@ export const GamepadController: React.FC<GamepadControllerProps> = ({
         </div>
       )}
 
-      {/* THE SCULPTED XBOX CONTROLLER CHASSIS */}
-      <div className="relative w-full h-full max-w-5xl max-h-[500px] flex flex-col justify-between overflow-hidden rounded-[40px] border-4 border-zinc-800 bg-gradient-to-b from-zinc-900 via-zinc-950 to-black shadow-[0_0_60px_rgba(0,0,0,0.9)] p-2 sm:p-4">
+      {/* THE SCULPTED XBOX CONTROLLER CHASSIS - 100% ADAPTIVE TO PHONE SCREEN */}
+      <div className="relative w-full h-full flex flex-col justify-between overflow-hidden rounded-2xl md:rounded-[36px] border-2 md:border-4 border-zinc-800 bg-gradient-to-b from-zinc-900 via-zinc-950 to-black shadow-[0_0_60px_rgba(0,0,0,0.9)] p-1 sm:p-2.5">
         {/* Authentic Xbox Side Grip Texture (Rubberized Diamond Grip Wings) */}
         <div
           className="absolute -left-4 top-16 bottom-0 w-36 rounded-r-[80px] opacity-35 pointer-events-none"
@@ -399,42 +399,63 @@ export const GamepadController: React.FC<GamepadControllerProps> = ({
             {/* LT Analog Trigger */}
             <button
               {...makeButtonTouchProps('l2', 'click')}
-              className={`flex-1 h-11 rounded-t-2xl rounded-b-lg border-2 flex flex-col items-center justify-center transition-all ${
+              className={`flex-1 h-9 sm:h-11 rounded-t-xl rounded-b-lg border-2 flex flex-col items-center justify-center transition-all ${
                 activeButtonsVisual['l2']
                   ? 'bg-zinc-700 border-emerald-400 text-white shadow-[0_0_15px_#10b981] translate-y-1'
                   : 'bg-gradient-to-b from-zinc-700 to-zinc-900 border-zinc-600/60 text-zinc-300 active:border-emerald-400'
               }`}
             >
-              <span className="text-xs font-black tracking-wider text-emerald-400">LT</span>
-              <span className="text-[7px] text-zinc-400 font-mono">CROUCH / AIM</span>
+              <span className="text-[11px] sm:text-xs font-black tracking-wider text-emerald-400">LT</span>
+              <span className="text-[6px] sm:text-[7px] text-zinc-400 font-mono">CROUCH / AIM</span>
             </button>
 
             {/* LB Bumper */}
             <button
               {...makeButtonTouchProps('l1', 'bumper')}
-              className={`flex-1 h-11 rounded-xl border-2 flex flex-col items-center justify-center transition-all ${
+              className={`flex-1 h-9 sm:h-11 rounded-xl border-2 flex flex-col items-center justify-center transition-all ${
                 activeButtonsVisual['l1']
                   ? 'bg-zinc-700 border-emerald-400 text-white shadow-[0_0_15px_#10b981] translate-y-0.5'
                   : 'bg-gradient-to-b from-zinc-800 to-zinc-950 border-zinc-700 text-zinc-300'
               }`}
             >
-              <span className="text-xs font-black tracking-wider text-white">LB</span>
-              <span className="text-[7px] text-zinc-400 font-mono">SPRINT</span>
+              <span className="text-[11px] sm:text-xs font-black tracking-wider text-white">LB</span>
+              <span className="text-[6px] sm:text-[7px] text-zinc-400 font-mono">SPRINT</span>
             </button>
           </div>
 
           {/* Top Center Mini Status & Feature Pills */}
           <div className="flex items-center gap-1.5 px-3 py-1 bg-black/60 rounded-full border border-white/10 shadow-inner">
-            <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[10px] text-zinc-400 font-bold uppercase">TV PIN:</span>
+            {/* Connection Mode Pill (Opens Real Bluetooth & Wi-Fi Pairing Modal) */}
+            <button
+              onClick={() => setIsAirtelModalOpen(true)}
+              className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] font-bold transition-all ${
+                status.transport === 'bluetooth_hid'
+                  ? 'bg-blue-600/30 border-blue-400 text-blue-300 shadow-[0_0_10px_rgba(59,130,246,0.5)]'
+                  : status.connected
+                  ? 'bg-emerald-600/30 border-emerald-400 text-emerald-300'
+                  : 'bg-zinc-900 border-red-500/50 text-red-400 hover:border-red-400'
+              }`}
+              title="Click to Connect Bluetooth Gamepad or Wi-Fi to Airtel TV"
+            >
+              <span className={`w-2 h-2 rounded-full ${status.connected ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'}`} />
+              <span>
+                {status.transport === 'bluetooth_hid'
+                  ? `BT: ${status.deviceName || 'AIRTEL TV'}`
+                  : status.connected
+                  ? `WI-FI (${status.transport.toUpperCase()})`
+                  : 'CONNECT TV'}
+              </span>
+            </button>
+
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] text-zinc-400 font-bold uppercase">PIN:</span>
               <input
                 type="text"
                 value={roomCode}
                 onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
                 placeholder="CODE"
                 maxLength={6}
-                className="w-12 bg-black/80 border border-white/20 rounded px-1 text-center font-mono font-black text-emerald-400 uppercase text-[11px] focus:outline-none focus:border-emerald-500"
+                className="w-11 bg-black/80 border border-white/20 rounded px-1 text-center font-mono font-black text-emerald-400 uppercase text-[10px] focus:outline-none focus:border-emerald-500"
               />
             </div>
 
@@ -508,27 +529,27 @@ export const GamepadController: React.FC<GamepadControllerProps> = ({
             {/* RB Bumper */}
             <button
               {...makeButtonTouchProps('r1', 'bumper')}
-              className={`flex-1 h-11 rounded-xl border-2 flex flex-col items-center justify-center transition-all ${
+              className={`flex-1 h-9 sm:h-11 rounded-xl border-2 flex flex-col items-center justify-center transition-all ${
                 activeButtonsVisual['r1']
                   ? 'bg-zinc-700 border-emerald-400 text-white shadow-[0_0_15px_#10b981] translate-y-0.5'
                   : 'bg-gradient-to-b from-zinc-800 to-zinc-950 border-zinc-700 text-zinc-300'
               }`}
             >
-              <span className="text-xs font-black tracking-wider text-white">RB</span>
-              <span className="text-[7px] text-zinc-400 font-mono">ACTION</span>
+              <span className="text-[11px] sm:text-xs font-black tracking-wider text-white">RB</span>
+              <span className="text-[6px] sm:text-[7px] text-zinc-400 font-mono">ACTION</span>
             </button>
 
             {/* RT Analog Trigger */}
             <button
               {...makeButtonTouchProps('r2', 'click')}
-              className={`flex-1 h-11 rounded-t-2xl rounded-b-lg border-2 flex flex-col items-center justify-center transition-all ${
+              className={`flex-1 h-9 sm:h-11 rounded-t-xl rounded-b-lg border-2 flex flex-col items-center justify-center transition-all ${
                 activeButtonsVisual['r2']
                   ? 'bg-zinc-700 border-emerald-400 text-white shadow-[0_0_15px_#10b981] translate-y-1'
                   : 'bg-gradient-to-b from-zinc-700 to-zinc-900 border-zinc-600/60 text-zinc-300 active:border-emerald-400'
               }`}
             >
-              <span className="text-xs font-black tracking-wider text-emerald-400">RT</span>
-              <span className="text-[7px] text-zinc-400 font-mono">PRIMARY FIRE</span>
+              <span className="text-[11px] sm:text-xs font-black tracking-wider text-emerald-400">RT</span>
+              <span className="text-[6px] sm:text-[7px] text-zinc-400 font-mono">PRIMARY FIRE</span>
             </button>
           </div>
         </div>
@@ -603,7 +624,7 @@ export const GamepadController: React.FC<GamepadControllerProps> = ({
               <VirtualStick
                 label="LS"
                 subLabel="WASD"
-                size={isLandscape ? 128 : 110}
+                size={isLandscape ? (window.innerHeight < 450 ? 104 : 120) : 100}
                 deadzone={settings.leftStickDeadzone}
                 hapticEnabled={settings.vibration}
                 hapticStrength={settings.vibrationStrength}
@@ -827,7 +848,7 @@ export const GamepadController: React.FC<GamepadControllerProps> = ({
               <VirtualStick
                 label="RS"
                 subLabel="LOOK"
-                size={isLandscape ? 128 : 110}
+                size={isLandscape ? (window.innerHeight < 450 ? 104 : 120) : 100}
                 sensitivity={settings.rightStickSensitivity}
                 invertY={settings.invertY}
                 hapticEnabled={settings.vibration}
@@ -847,28 +868,28 @@ export const GamepadController: React.FC<GamepadControllerProps> = ({
         </div>
 
         {/* BOTTOM ERGONOMIC JUMP BAR (Directly under right thumb for Obby jumping) */}
-        <div className="relative z-20 w-full flex items-center justify-between px-6 pb-1 pt-0.5">
-          <div className="text-[10px] text-zinc-500 font-mono">
+        <div className="relative z-20 w-full flex items-center justify-between px-3 sm:px-6 pb-0.5 pt-0.5 shrink-0">
+          <div className="text-[9px] sm:text-[10px] text-zinc-500 font-mono hidden sm:block">
             <span>TX: #{status.packetsSent}</span>
             <span className="mx-1.5">•</span>
-            <span className="text-emerald-400 font-bold">XBOX WIRELESS CONTROLLER</span>
+            <span className="text-emerald-400 font-bold">XBOX CONTROLLER</span>
           </div>
 
           <button
             {...makeButtonTouchProps('jump', 'jump')}
-            className={`px-12 py-2 rounded-2xl border-2 flex items-center gap-2 transition-all active:scale-95 shadow-2xl ${
+            className={`flex-1 sm:flex-none px-6 sm:px-12 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl border-2 flex items-center justify-center gap-2 transition-all active:scale-95 shadow-2xl ${
               activeButtonsVisual['jump'] || activeButtonsVisual['a']
                 ? 'bg-emerald-500 border-emerald-300 text-black shadow-[0_0_25px_rgba(16,185,129,0.9)]'
                 : 'bg-zinc-900 border-emerald-500/60 text-emerald-400'
             }`}
           >
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping inline-block" />
-            <span className="font-black text-xs md:text-sm tracking-widest uppercase">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
+            <span className="font-black text-[11px] sm:text-xs md:text-sm tracking-widest uppercase">
               ROBLOX JUMP (A / SPACE)
             </span>
           </button>
 
-          <div className="text-[10px] text-zinc-500 font-mono">
+          <div className="text-[9px] sm:text-[10px] text-zinc-500 font-mono hidden sm:block">
             <span>RUMBLE: {settings.vibration ? 'ON' : 'OFF'}</span>
           </div>
         </div>

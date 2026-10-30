@@ -1,4 +1,5 @@
 import { GamepadPacket, RoomConnectionStatus } from '../types/gamepad';
+import { NativeBluetoothGamepad, encodeHidGamepadReport } from './bluetoothGamepad';
 
 export type MessageCallback = (data: any) => void;
 
@@ -17,9 +18,33 @@ export class GamepadConnectionManager {
   private packetsReceived = 0;
   private currentPing = 0;
   private controllerCount = 0;
-  private transport: 'webrtc' | 'websocket' | 'offline' = 'offline';
+  private transport: 'webrtc' | 'websocket' | 'bluetooth_hid' | 'wifi_ip' | 'offline' = 'offline';
+  private customTvHost: string | null = null;
+  private connectedBluetoothDeviceName: string | null = null;
 
-  constructor() {}
+  constructor() {
+    this.initNativeBluetoothListeners();
+  }
+
+  private initNativeBluetoothListeners() {
+    try {
+      NativeBluetoothGamepad.addListener('onConnectionChanged', (data) => {
+        if (data.status === 'connected') {
+          this.isConnected = true;
+          this.transport = 'bluetooth_hid';
+          this.connectedBluetoothDeviceName = data.deviceName || 'Airtel Xstream Box';
+          this.notifyStatus();
+        } else if (data.status === 'disconnected') {
+          if (this.transport === 'bluetooth_hid') {
+            this.isConnected = false;
+            this.transport = 'offline';
+            this.connectedBluetoothDeviceName = null;
+            this.notifyStatus();
+          }
+        }
+      }).catch(() => {});
+    } catch {}
+  }
 
   public getStatus(): RoomConnectionStatus {
     return {
@@ -31,7 +56,9 @@ export class GamepadConnectionManager {
       packetsSent: this.packetsSent,
       packetsReceived: this.packetsReceived,
       controllerCount: this.controllerCount,
-      transport: this.transport
+      transport: this.transport,
+      deviceName: this.connectedBluetoothDeviceName || undefined,
+      tvHost: this.customTvHost || undefined
     };
   }
 
@@ -59,32 +86,55 @@ export class GamepadConnectionManager {
     this.listeners.forEach(cb => cb(data));
   }
 
+  /**
+   * Set custom TV IP on the local Wi-Fi network (e.g. 192.168.1.100:3000)
+   */
+  public setCustomTvHost(hostWithPort: string | null) {
+    this.customTvHost = hostWithPort ? hostWithPort.trim() : null;
+    if (this.role === 'controller' && this.roomCode) {
+      this.connect('controller', this.roomCode);
+    }
+  }
+
   public connect(role: 'tv' | 'controller', roomCode: string) {
     this.disconnect();
     this.role = role;
     this.roomCode = roomCode.toUpperCase().trim();
     this.transport = 'offline';
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    let wsUrl: string;
+
+    if (this.customTvHost) {
+      // Connect directly to the TV box's local Wi-Fi IP
+      const cleanHost = this.customTvHost.replace(/^https?:\/\//, '').replace(/^wss?:\/\//, '').replace(/\/.*$/, '');
+      const hasPort = cleanHost.includes(':');
+      const target = hasPort ? cleanHost : `${cleanHost}:3000`;
+      wsUrl = `ws://${target}/ws`;
+    } else {
+      // Use current window origin
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      let host = window.location.host;
+      if (!host || host === 'localhost' || host === '127.0.0.1') {
+        host = `${window.location.hostname || 'localhost'}:3000`;
+      }
+      wsUrl = `${protocol}//${host}/ws`;
+    }
 
     try {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
         this.isConnected = true;
-        this.transport = 'websocket';
+        this.transport = this.customTvHost ? 'wifi_ip' : 'websocket';
         this.notifyStatus();
 
         if (this.role === 'tv') {
           this.ws?.send(JSON.stringify({ type: 'create-room', roomCode: this.roomCode }));
         } else {
           this.ws?.send(JSON.stringify({ type: 'join-room', roomCode: this.roomCode }));
-          // Controller can initiate WebRTC peer connection
           this.setupWebRTCInitiator();
         }
 
-        // Start ping loop
         this.startPingLoop();
       };
 
@@ -121,25 +171,30 @@ export class GamepadConnectionManager {
       };
 
       this.ws.onclose = () => {
-        this.isConnected = false;
-        this.transport = 'offline';
+        // If Bluetooth HID is currently connected, don't mark completely offline
+        if (this.transport !== 'bluetooth_hid') {
+          this.isConnected = false;
+          this.transport = 'offline';
+        }
         this.notifyStatus();
         this.cleanupWebRTC();
         this.stopPingLoop();
 
-        // Auto reconnect after 3 seconds if not intentionally closed
+        // Auto reconnect after 3 seconds if roomCode exists
         clearTimeout(this.reconnectTimeout);
         this.reconnectTimeout = setTimeout(() => {
-          if (this.roomCode) {
+          if (this.roomCode && this.transport !== 'bluetooth_hid') {
             this.connect(this.role, this.roomCode);
           }
         }, 3000);
       };
 
       this.ws.onerror = () => {
-        this.isConnected = false;
-        this.transport = 'offline';
-        this.notifyStatus();
+        if (this.transport !== 'bluetooth_hid') {
+          this.isConnected = false;
+          this.transport = 'offline';
+          this.notifyStatus();
+        }
       };
     } catch {
       this.isConnected = false;
@@ -152,9 +207,9 @@ export class GamepadConnectionManager {
     this.stopPingLoop();
     this.pingInterval = setInterval(() => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
+        this.ws.send(JSON.stringify({ type: 'ping', clientTimestamp: Date.now() }));
       }
-    }, 2000);
+    }, 2500);
   }
 
   private stopPingLoop() {
@@ -164,127 +219,109 @@ export class GamepadConnectionManager {
     }
   }
 
-  // WebRTC DataChannel setup for ultra-low latency peer-to-peer input
+  // --- WebRTC Peer-to-Peer ---
   private setupWebRTCInitiator() {
-    if (typeof RTCPeerConnection === 'undefined') return;
-
     try {
       this.cleanupWebRTC();
-      const pc = new RTCPeerConnection({
+      this.peerConnection = new RTCPeerConnection({
         iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
       });
-      this.peerConnection = pc;
 
-      // Ordered false, maxPacketLifeTime 100ms for instantaneous gaming input
-      const dc = pc.createDataChannel('gamepad', { ordered: false, maxPacketLifeTime: 100 });
-      this.dataChannel = dc;
+      this.dataChannel = this.peerConnection.createDataChannel('gamepad-inputs', {
+        ordered: false,
+        maxRetransmits: 0
+      });
 
-      dc.onopen = () => {
+      this.dataChannel.onopen = () => {
         this.transport = 'webrtc';
         this.notifyStatus();
       };
 
-      dc.onclose = () => {
-        if (this.transport === 'webrtc') {
-          this.transport = 'websocket';
-          this.notifyStatus();
+      this.dataChannel.onclose = () => {
+        if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.transport = this.customTvHost ? 'wifi_ip' : 'websocket';
         }
+        this.notifyStatus();
       };
 
-      pc.onicecandidate = (e) => {
-        if (e.candidate && this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.peerConnection.onicecandidate = (event) => {
+        if (event.candidate && this.ws?.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({
             type: 'webrtc-signal',
-            signal: { candidate: e.candidate }
+            roomCode: this.roomCode,
+            signal: { candidate: event.candidate }
           }));
         }
       };
 
-      pc.createOffer().then(offer => {
-        return pc.setLocalDescription(offer);
-      }).then(() => {
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-          this.ws.send(JSON.stringify({
-            type: 'webrtc-signal',
-            signal: { sdp: pc.localDescription }
-          }));
-        }
-      }).catch(() => {
-        // Fallback transparently to WebSocket
-      });
-    } catch {
-      // Fallback to WebSocket
-    }
+      this.peerConnection.createOffer().then((offer) => {
+        return this.peerConnection?.setLocalDescription(offer).then(() => {
+          if (this.ws?.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({
+              type: 'webrtc-signal',
+              roomCode: this.roomCode,
+              signal: { description: this.peerConnection?.localDescription }
+            }));
+          }
+        });
+      }).catch(() => {});
+    } catch {}
   }
 
   private handleWebRTCSignal(signal: any) {
     if (!signal) return;
     try {
-      if (this.role === 'tv') {
-        if (!this.peerConnection) {
-          const pc = new RTCPeerConnection({
-            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-          });
-          this.peerConnection = pc;
+      if (!this.peerConnection) {
+        this.peerConnection = new RTCPeerConnection({
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
 
-          pc.ondatachannel = (event) => {
-            const dc = event.channel;
-            this.dataChannel = dc;
-            dc.onopen = () => {
-              this.transport = 'webrtc';
-              this.notifyStatus();
-            };
-            dc.onmessage = (e) => {
-              try {
-                const data = JSON.parse(e.data);
-                this.packetsReceived++;
-                this.notifyMessage(data);
-              } catch {}
-            };
+        this.peerConnection.ondatachannel = (event) => {
+          this.dataChannel = event.channel;
+          this.dataChannel.onopen = () => {
+            this.transport = 'webrtc';
+            this.notifyStatus();
           };
-
-          pc.onicecandidate = (e) => {
-            if (e.candidate && this.ws && this.ws.readyState === WebSocket.OPEN) {
-              this.ws.send(JSON.stringify({
-                type: 'webrtc-signal',
-                signal: { candidate: e.candidate }
-              }));
-            }
+          this.dataChannel.onmessage = (e) => {
+            try {
+              const parsed = JSON.parse(e.data);
+              this.packetsReceived++;
+              this.notifyMessage(parsed);
+            } catch {}
           };
-        }
+        };
 
-        const pc = this.peerConnection;
-        if (signal.sdp) {
-          pc.setRemoteDescription(new RTCSessionDescription(signal.sdp)).then(() => {
-            if (signal.sdp.type === 'offer') {
-              return pc.createAnswer().then(answer => {
-                return pc.setLocalDescription(answer);
-              }).then(() => {
-                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.peerConnection.onicecandidate = (event) => {
+          if (event.candidate && this.ws?.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({
+              type: 'webrtc-signal',
+              roomCode: this.roomCode,
+              signal: { candidate: event.candidate }
+            }));
+          }
+        };
+      }
+
+      if (signal.description) {
+        this.peerConnection.setRemoteDescription(new RTCSessionDescription(signal.description)).then(() => {
+          if (signal.description.type === 'offer') {
+            return this.peerConnection?.createAnswer().then((answer) => {
+              return this.peerConnection?.setLocalDescription(answer).then(() => {
+                if (this.ws?.readyState === WebSocket.OPEN) {
                   this.ws.send(JSON.stringify({
                     type: 'webrtc-signal',
-                    signal: { sdp: pc.localDescription }
+                    roomCode: this.roomCode,
+                    signal: { description: this.peerConnection?.localDescription }
                   }));
                 }
               });
-            }
-          }).catch(() => {});
-        } else if (signal.candidate) {
-          pc.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch(() => {});
-        }
-      } else {
-        // Controller handling answers and candidates
-        const pc = this.peerConnection;
-        if (!pc) return;
-        if (signal.sdp) {
-          pc.setRemoteDescription(new RTCSessionDescription(signal.sdp)).catch(() => {});
-        } else if (signal.candidate) {
-          pc.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch(() => {});
-        }
+            });
+          }
+        }).catch(() => {});
+      } else if (signal.candidate) {
+        this.peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch(() => {});
       }
-    } catch {
-      // Ignored
-    }
+    } catch {}
   }
 
   private cleanupWebRTC() {
@@ -300,9 +337,18 @@ export class GamepadConnectionManager {
 
   public sendInput(packet: GamepadPacket) {
     this.packetsSent++;
+
+    // 1. PRIORITY 1: Native Bluetooth HID Device Transmission directly to paired TV
+    if (this.transport === 'bluetooth_hid' || this.connectedBluetoothDeviceName) {
+      try {
+        const report = encodeHidGamepadReport(packet.buttons, packet.axes);
+        NativeBluetoothGamepad.sendReport(report).catch(() => {});
+      } catch {}
+    }
+
+    // 2. PRIORITY 2: Wi-Fi P2P WebRTC / Local IP WebSocket to TV
     const payload = JSON.stringify(packet);
 
-    // Prefer WebRTC DataChannel for UDP direct speed
     if (this.dataChannel && this.dataChannel.readyState === 'open') {
       try {
         this.dataChannel.send(payload);
@@ -310,7 +356,6 @@ export class GamepadConnectionManager {
       } catch {}
     }
 
-    // Fallback to WebSocket
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(payload);
     }
@@ -332,8 +377,10 @@ export class GamepadConnectionManager {
       this.ws.close();
       this.ws = null;
     }
-    this.isConnected = false;
-    this.transport = 'offline';
+    if (this.transport !== 'bluetooth_hid') {
+      this.isConnected = false;
+      this.transport = 'offline';
+    }
     this.notifyStatus();
   }
 }

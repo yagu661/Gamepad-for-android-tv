@@ -10,6 +10,9 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // Register the Bluetooth HID Gamepad plugin with Capacitor
+        registerPlugin(BluetoothGamepadPlugin.class);
+
         super.onCreate(savedInstanceState);
         // Force auto-rotate to landscape as soon as the app opens like real mobile games
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);

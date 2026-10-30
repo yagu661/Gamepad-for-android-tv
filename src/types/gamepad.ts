@@ -93,5 +93,7 @@ export interface RoomConnectionStatus {
   packetsSent: number;
   packetsReceived: number;
   controllerCount: number;
-  transport: 'webrtc' | 'websocket' | 'offline';
+  transport: 'webrtc' | 'websocket' | 'bluetooth_hid' | 'wifi_ip' | 'offline';
+  deviceName?: string;
+  tvHost?: string;
 }
