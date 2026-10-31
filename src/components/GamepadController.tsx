@@ -925,24 +925,44 @@ export const GamepadController: React.FC<GamepadControllerProps> = ({
       <AirMouseOverlay
         active={isAirMouseActive}
         onMoveDelta={(dx, dy) => {
+          cursorRef.current.active = true;
           cursorRef.current.dx += dx;
           cursorRef.current.dy += dy;
         }}
         onClick={(isRight) => {
+          cursorRef.current.active = true;
           if (isRight) {
             cursorRef.current.rightClick = true;
-            setTimeout(() => { cursorRef.current.rightClick = false; }, 100);
           } else {
             cursorRef.current.leftClick = true;
-            setTimeout(() => { cursorRef.current.leftClick = false; }, 100);
           }
+          // Immediate one-shot dispatch for zero-latency click
+          connectionManager.sendInput({
+            type: 'input',
+            roomCode,
+            seq: ++seqRef.current,
+            timestamp: Date.now(),
+            axes: { ...axesRef.current },
+            buttons: { ...buttonsRef.current },
+            cursor: {
+              ...cursorRef.current,
+              leftClick: !isRight,
+              rightClick: isRight
+            }
+          });
+          setTimeout(() => {
+            cursorRef.current.leftClick = false;
+            cursorRef.current.rightClick = false;
+          }, 60);
         }}
         onScroll={(delta) => {
+          cursorRef.current.active = true;
           cursorRef.current.scrollDelta += delta;
         }}
         onClose={() => {
           setIsAirMouseActive(false);
           buttonsRef.current.cursorMode = false;
+          cursorRef.current.active = false;
         }}
         hapticEnabled={settings.vibration}
       />
@@ -957,6 +977,16 @@ export const GamepadController: React.FC<GamepadControllerProps> = ({
             submitted: true,
             action: isSearch ? 'search' : 'chat'
           };
+          // Immediately dispatch keyboard packet
+          connectionManager.sendInput({
+            type: 'input',
+            roomCode,
+            seq: ++seqRef.current,
+            timestamp: Date.now(),
+            axes: { ...axesRef.current },
+            buttons: { ...buttonsRef.current },
+            keyboard: { ...keyboardRef.current }
+          });
         }}
         hapticEnabled={settings.vibration}
       />

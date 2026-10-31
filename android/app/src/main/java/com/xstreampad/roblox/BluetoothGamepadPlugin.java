@@ -28,12 +28,20 @@ public class BluetoothGamepadPlugin extends Plugin {
     private BluetoothDevice connectedHostDevice;
     private boolean isRegistered = false;
 
-    // Standard 16-button + D-pad + 4 analog axes HID Gamepad Report Descriptor
-    private static final byte[] GAMEPAD_REPORT_DESCRIPTOR = new byte[] {
+    // Report IDs
+    public static final byte REPORT_ID_GAMEPAD = 1;
+    public static final byte REPORT_ID_MOUSE = 2;
+    public static final byte REPORT_ID_KEYBOARD = 3;
+
+    // Composite Report Descriptor: Gamepad (ID 1) + Mouse (ID 2) + Keyboard (ID 3)
+    private static final byte[] COMPOSITE_REPORT_DESCRIPTOR = new byte[] {
+        // =========================================================================
+        // 1. GAMEPAD (Report ID 1)
+        // =========================================================================
         (byte) 0x05, (byte) 0x01, // Usage Page (Generic Desktop)
         (byte) 0x09, (byte) 0x05, // Usage (Gamepad)
         (byte) 0xA1, (byte) 0x01, // Collection (Application)
-        (byte) 0x85, (byte) 0x01, //   Report ID (1)
+        (byte) 0x85, REPORT_ID_GAMEPAD, //   Report ID (1)
         
         // 16 Buttons (A, B, X, Y, LB, RB, LT_click, RT_click, Select, Start, L3, R3, Guide, Emote, Turbo, Jump) -> 2 bytes
         (byte) 0x05, (byte) 0x09, //   Usage Page (Button)
@@ -83,15 +91,86 @@ public class BluetoothGamepadPlugin extends Plugin {
         (byte) 0x75, (byte) 0x08, //   Report Size (8 bits)
         (byte) 0x95, (byte) 0x02, //   Report Count (2)
         (byte) 0x81, (byte) 0x02, //   Input (Data,Var,Abs)
+        (byte) 0xC0,              // End Collection (Gamepad)
 
-        (byte) 0xC0               // End Collection
+        // =========================================================================
+        // 2. MOUSE (Report ID 2)
+        // =========================================================================
+        (byte) 0x05, (byte) 0x01, // Usage Page (Generic Desktop)
+        (byte) 0x09, (byte) 0x02, // Usage (Mouse)
+        (byte) 0xA1, (byte) 0x01, // Collection (Application)
+        (byte) 0x85, REPORT_ID_MOUSE, //   Report ID (2)
+        (byte) 0x09, (byte) 0x01, //   Usage (Pointer)
+        (byte) 0xA1, (byte) 0x00, //   Collection (Physical)
+        // Mouse Buttons (Left, Right, Middle)
+        (byte) 0x05, (byte) 0x09, //     Usage Page (Buttons)
+        (byte) 0x19, (byte) 0x01, //     Usage Minimum (1)
+        (byte) 0x29, (byte) 0x03, //     Usage Maximum (3)
+        (byte) 0x15, (byte) 0x00, //     Logical Minimum (0)
+        (byte) 0x25, (byte) 0x01, //     Logical Maximum (1)
+        (byte) 0x75, (byte) 0x01, //     Report Size (1 bit)
+        (byte) 0x95, (byte) 0x03, //     Report Count (3 buttons)
+        (byte) 0x81, (byte) 0x02, //     Input (Data, Variable, Absolute)
+        // 5 bits padding
+        (byte) 0x75, (byte) 0x05, //     Report Size (5 bits)
+        (byte) 0x95, (byte) 0x01, //     Report Count (1)
+        (byte) 0x81, (byte) 0x03, //     Input (Constant, Variable, Absolute)
+        // Relative X, Y movement
+        (byte) 0x05, (byte) 0x01, //     Usage Page (Generic Desktop)
+        (byte) 0x09, (byte) 0x30, //     Usage (X)
+        (byte) 0x09, (byte) 0x31, //     Usage (Y)
+        (byte) 0x15, (byte) 0x81, //     Logical Minimum (-127)
+        (byte) 0x25, (byte) 0x7F, //     Logical Maximum (127)
+        (byte) 0x75, (byte) 0x08, //     Report Size (8 bits)
+        (byte) 0x95, (byte) 0x02, //     Report Count (2 axes)
+        (byte) 0x81, (byte) 0x06, //     Input (Data, Variable, Relative)
+        // Wheel Scroll
+        (byte) 0x09, (byte) 0x38, //     Usage (Wheel)
+        (byte) 0x15, (byte) 0x81, //     Logical Minimum (-127)
+        (byte) 0x25, (byte) 0x7F, //     Logical Maximum (127)
+        (byte) 0x75, (byte) 0x08, //     Report Size (8 bits)
+        (byte) 0x95, (byte) 0x01, //     Report Count (1)
+        (byte) 0x81, (byte) 0x06, //     Input (Data, Variable, Relative)
+        (byte) 0xC0,              //   End Collection (Physical)
+        (byte) 0xC0,              // End Collection (Mouse)
+
+        // =========================================================================
+        // 3. KEYBOARD (Report ID 3)
+        // =========================================================================
+        (byte) 0x05, (byte) 0x01, // Usage Page (Generic Desktop)
+        (byte) 0x09, (byte) 0x06, // Usage (Keyboard)
+        (byte) 0xA1, (byte) 0x01, // Collection (Application)
+        (byte) 0x85, REPORT_ID_KEYBOARD, // Report ID (3)
+        // Modifiers (Control, Shift, Alt, GUI)
+        (byte) 0x05, (byte) 0x07, //   Usage Page (Key Codes)
+        (byte) 0x19, (byte) 0xE0, //   Usage Minimum (Left Control)
+        (byte) 0x29, (byte) 0xE7, //   Usage Maximum (Right GUI)
+        (byte) 0x15, (byte) 0x00, //   Logical Minimum (0)
+        (byte) 0x25, (byte) 0x01, //   Logical Maximum (1)
+        (byte) 0x75, (byte) 0x01, //   Report Size (1 bit)
+        (byte) 0x95, (byte) 0x08, //   Report Count (8 bits)
+        (byte) 0x81, (byte) 0x02, //   Input (Data, Variable, Absolute)
+        // Reserved byte
+        (byte) 0x75, (byte) 0x08, //   Report Size (8 bits)
+        (byte) 0x95, (byte) 0x01, //   Report Count (1 byte)
+        (byte) 0x81, (byte) 0x01, //   Input (Constant)
+        // Key Array (Up to 6 concurrent keycodes)
+        (byte) 0x75, (byte) 0x08, //   Report Size (8 bits)
+        (byte) 0x95, (byte) 0x06, //   Report Count (6 key bytes)
+        (byte) 0x15, (byte) 0x00, //   Logical Minimum (0)
+        (byte) 0x25, (byte) 0x65, //   Logical Maximum (101)
+        (byte) 0x05, (byte) 0x07, //   Usage Page (Key Codes)
+        (byte) 0x19, (byte) 0x00, //   Usage Minimum (0)
+        (byte) 0x29, (byte) 0x65, //   Usage Maximum (101)
+        (byte) 0x81, (byte) 0x00, //   Input (Data, Array)
+        (byte) 0xC0               // End Collection (Keyboard)
     };
 
     private final BluetoothHidDevice.Callback hidCallback = new BluetoothHidDevice.Callback() {
         @Override
         public void onAppStatusChanged(BluetoothDevice pluggedDevice, boolean registered) {
             isRegistered = registered;
-            Log.d(TAG, "HID Gamepad App Registration status: " + registered);
+            Log.d(TAG, "HID Composite App Registration status: " + registered);
             JSObject data = new JSObject();
             data.put("registered", registered);
             data.put("status", registered ? "ready_for_pairing" : "registration_failed");
@@ -149,7 +228,6 @@ public class BluetoothGamepadPlugin extends Plugin {
             return;
         }
 
-        // On Android 9+, BluetoothProfile.HID_DEVICE is supported
         ret.put("supported", true);
         ret.put("isRegistered", isRegistered);
         ret.put("connected", connectedHostDevice != null);
@@ -168,7 +246,7 @@ public class BluetoothGamepadPlugin extends Plugin {
         if (isRegistered && hidDeviceProxy != null) {
             JSObject ret = new JSObject();
             ret.put("success", true);
-            ret.put("message", "Already registered as Xbox Bluetooth Gamepad");
+            ret.put("message", "Already registered as Xbox Wireless Controller & Peripheral");
             call.resolve(ret);
             return;
         }
@@ -182,11 +260,11 @@ public class BluetoothGamepadPlugin extends Plugin {
                     Log.d(TAG, "Bluetooth HID_DEVICE profile proxy connected");
 
                     BluetoothHidDeviceAppSdpSettings sdp = new BluetoothHidDeviceAppSdpSettings(
-                        "Xbox Wireless Gamepad",
-                        "XstreamPad Xbox Controller for Airtel TV",
+                        "Xbox Wireless Controller",
+                        "XstreamPad Xbox Gamepad, Air Mouse & Keyboard for Airtel TV",
                         "Microsoft / XstreamPad",
-                        BluetoothHidDevice.SUBCLASS2_GAMEPAD,
-                        GAMEPAD_REPORT_DESCRIPTOR
+                        BluetoothHidDevice.SUBCLASS1_COMBO, // Combo device allows Gamepad + Mouse + Keyboard
+                        COMPOSITE_REPORT_DESCRIPTOR
                     );
 
                     boolean success = hidDeviceProxy.registerApp(
@@ -290,6 +368,7 @@ public class BluetoothGamepadPlugin extends Plugin {
         call.resolve(ret);
     }
 
+    // 1. Send Gamepad Report (Report ID 1)
     @SuppressLint("MissingPermission")
     @PluginMethod
     public void sendReport(PluginCall call) {
@@ -299,15 +378,14 @@ public class BluetoothGamepadPlugin extends Plugin {
         }
 
         try {
-            // Read buttons bitmask (16 bits = 2 bytes)
             int buttonsMask = call.getInt("buttons", 0);
-            int dpad = call.getInt("dpad", 0); // 0 = neutral, 1 = up, 2 = up-right, 3 = right, 4 = down-right, 5 = down, 6 = down-left, 7 = left, 8 = up-left
-            int lx = call.getInt("lx", 0); // -127 to 127
-            int ly = call.getInt("ly", 0); // -127 to 127
-            int rx = call.getInt("rx", 0); // -127 to 127
-            int ry = call.getInt("ry", 0); // -127 to 127
-            int lt = call.getInt("lt", 0); // 0 to 255
-            int rt = call.getInt("rt", 0); // 0 to 255
+            int dpad = call.getInt("dpad", 0);
+            int lx = call.getInt("lx", 0);
+            int ly = call.getInt("ly", 0);
+            int rx = call.getInt("rx", 0);
+            int ry = call.getInt("ry", 0);
+            int lt = call.getInt("lt", 0);
+            int rt = call.getInt("rt", 0);
 
             byte[] report = new byte[8];
             report[0] = (byte) (buttonsMask & 0xFF);
@@ -319,12 +397,156 @@ public class BluetoothGamepadPlugin extends Plugin {
             report[6] = (byte) Math.max(-127, Math.min(127, ry));
             report[7] = (byte) (lt > 0 ? (byte)(lt & 0xFF) : (rt > 0 ? (byte)(rt & 0xFF) : 0));
 
-            boolean sent = hidDeviceProxy.sendReport(connectedHostDevice, 1, report);
+            boolean sent = hidDeviceProxy.sendReport(connectedHostDevice, REPORT_ID_GAMEPAD, report);
             JSObject ret = new JSObject();
             ret.put("sent", sent);
             call.resolve(ret);
         } catch (Exception e) {
             call.resolve(new JSObject().put("sent", false).put("error", e.getMessage()));
         }
+    }
+
+    // 2. Send Mouse Report (Report ID 2)
+    @SuppressLint("MissingPermission")
+    @PluginMethod
+    public void sendMouseReport(PluginCall call) {
+        if (hidDeviceProxy == null || connectedHostDevice == null) {
+            call.resolve(new JSObject().put("sent", false));
+            return;
+        }
+
+        try {
+            int buttons = call.getInt("buttons", 0); // 1 = Left, 2 = Right, 4 = Middle
+            int dx = call.getInt("dx", 0); // -127 to 127
+            int dy = call.getInt("dy", 0); // -127 to 127
+            int scroll = call.getInt("scroll", 0); // -127 to 127
+
+            byte[] report = new byte[4];
+            report[0] = (byte) (buttons & 0x07);
+            report[1] = (byte) Math.max(-127, Math.min(127, dx));
+            report[2] = (byte) Math.max(-127, Math.min(127, dy));
+            report[3] = (byte) Math.max(-127, Math.min(127, scroll));
+
+            boolean sent = hidDeviceProxy.sendReport(connectedHostDevice, REPORT_ID_MOUSE, report);
+            JSObject ret = new JSObject();
+            ret.put("sent", sent);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.resolve(new JSObject().put("sent", false).put("error", e.getMessage()));
+        }
+    }
+
+    // 3. Send Keyboard Keycode Report (Report ID 3)
+    @SuppressLint("MissingPermission")
+    @PluginMethod
+    public void sendKeyboardReport(PluginCall call) {
+        if (hidDeviceProxy == null || connectedHostDevice == null) {
+            call.resolve(new JSObject().put("sent", false));
+            return;
+        }
+
+        try {
+            int modifiers = call.getInt("modifiers", 0); // 0x02 = Shift, 0x01 = Ctrl, etc.
+            int keycode = call.getInt("keycode", 0);
+
+            byte[] report = new byte[8];
+            report[0] = (byte) (modifiers & 0xFF);
+            report[1] = 0; // Reserved
+            report[2] = (byte) (keycode & 0xFF); // Primary keycode
+
+            boolean sent = hidDeviceProxy.sendReport(connectedHostDevice, REPORT_ID_KEYBOARD, report);
+
+            // Automatically send key release if requested
+            boolean autoRelease = call.getBoolean("autoRelease", true);
+            if (autoRelease && keycode != 0) {
+                byte[] releaseReport = new byte[8];
+                Executors.newSingleThreadScheduledExecutor().schedule(() -> {
+                    if (hidDeviceProxy != null && connectedHostDevice != null) {
+                        hidDeviceProxy.sendReport(connectedHostDevice, REPORT_ID_KEYBOARD, releaseReport);
+                    }
+                }, 40, java.util.concurrent.TimeUnit.MILLISECONDS);
+            }
+
+            JSObject ret = new JSObject();
+            ret.put("sent", sent);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.resolve(new JSObject().put("sent", false).put("error", e.getMessage()));
+        }
+    }
+
+    // 4. Send Complete Text String via Native Keyboard Emulation
+    @SuppressLint("MissingPermission")
+    @PluginMethod
+    public void sendKeyboardText(PluginCall call) {
+        String text = call.getString("text", "");
+        if (text == null || text.isEmpty() || hidDeviceProxy == null || connectedHostDevice == null) {
+            call.resolve(new JSObject().put("sent", false));
+            return;
+        }
+
+        Executors.newSingleThreadExecutor().execute(() -> {
+            try {
+                for (char c : text.toCharArray()) {
+                    int[] hidKey = charToHidKeycode(c);
+                    if (hidKey != null) {
+                        byte[] press = new byte[8];
+                        press[0] = (byte) hidKey[0]; // modifier (e.g. shift)
+                        press[2] = (byte) hidKey[1]; // HID keycode
+                        hidDeviceProxy.sendReport(connectedHostDevice, REPORT_ID_KEYBOARD, press);
+                        Thread.sleep(30);
+
+                        byte[] release = new byte[8];
+                        hidDeviceProxy.sendReport(connectedHostDevice, REPORT_ID_KEYBOARD, release);
+                        Thread.sleep(30);
+                    }
+                }
+
+                // Send Enter key at end if requested
+                boolean sendEnter = call.getBoolean("sendEnter", true);
+                if (sendEnter) {
+                    byte[] enterPress = new byte[8];
+                    enterPress[2] = 0x28; // HID code for Enter
+                    hidDeviceProxy.sendReport(connectedHostDevice, REPORT_ID_KEYBOARD, enterPress);
+                    Thread.sleep(35);
+                    byte[] enterRelease = new byte[8];
+                    hidDeviceProxy.sendReport(connectedHostDevice, REPORT_ID_KEYBOARD, enterRelease);
+                }
+
+                JSObject ret = new JSObject();
+                ret.put("sent", true);
+                call.resolve(ret);
+            } catch (Exception e) {
+                call.resolve(new JSObject().put("sent", false).put("error", e.getMessage()));
+            }
+        });
+    }
+
+    /**
+     * Converts ASCII char to [modifier, HID_keycode]
+     */
+    private int[] charToHidKeycode(char c) {
+        if (c >= 'a' && c <= 'z') {
+            return new int[] { 0, 0x04 + (c - 'a') };
+        }
+        if (c >= 'A' && c <= 'Z') {
+            return new int[] { 0x02, 0x04 + (c - 'A') }; // Shift modifier (0x02)
+        }
+        if (c >= '1' && c <= '9') {
+            return new int[] { 0, 0x1E + (c - '1') };
+        }
+        if (c == '0') return new int[] { 0, 0x27 };
+        if (c == ' ') return new int[] { 0, 0x2C };
+        if (c == '\n' || c == '\r') return new int[] { 0, 0x28 }; // Enter
+        if (c == '\b') return new int[] { 0, 0x2A }; // Backspace
+        if (c == '/') return new int[] { 0, 0x38 };
+        if (c == '?') return new int[] { 0x02, 0x38 }; // Shift + /
+        if (c == '!') return new int[] { 0x02, 0x1E }; // Shift + 1
+        if (c == '.') return new int[] { 0, 0x37 };
+        if (c == ',') return new int[] { 0, 0x36 };
+        if (c == '-') return new int[] { 0, 0x2D };
+        if (c == '_') return new int[] { 0x02, 0x2D };
+
+        return null;
     }
 }

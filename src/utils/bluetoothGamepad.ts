@@ -33,6 +33,21 @@ export interface BluetoothGamepadPlugin {
     lt: number;
     rt: number;
   }): Promise<{ sent: boolean; error?: string }>;
+  sendMouseReport(options: {
+    buttons: number; // 1 = Left, 2 = Right, 4 = Middle
+    dx: number;
+    dy: number;
+    scroll?: number;
+  }): Promise<{ sent: boolean; error?: string }>;
+  sendKeyboardReport(options: {
+    modifiers?: number;
+    keycode: number;
+    autoRelease?: boolean;
+  }): Promise<{ sent: boolean; error?: string }>;
+  sendKeyboardText(options: {
+    text: string;
+    sendEnter?: boolean;
+  }): Promise<{ sent: boolean; error?: string }>;
   addListener(eventName: 'onRegistrationChanged', listenerFunc: (data: { registered: boolean; status: string }) => void): Promise<any>;
   addListener(eventName: 'onConnectionChanged', listenerFunc: (data: { status: string; deviceName: string; deviceAddress: string; state: number }) => void): Promise<any>;
 }

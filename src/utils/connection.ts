@@ -341,8 +341,34 @@ export class GamepadConnectionManager {
     // 1. PRIORITY 1: Native Bluetooth HID Device Transmission directly to paired TV
     if (this.transport === 'bluetooth_hid' || this.connectedBluetoothDeviceName) {
       try {
+        // Send Gamepad Report (Report ID 1)
         const report = encodeHidGamepadReport(packet.buttons, packet.axes);
         NativeBluetoothGamepad.sendReport(report).catch(() => {});
+
+        // Send Mouse Report (Report ID 2) if active, moved, or clicked
+        if (packet.cursor && packet.cursor.active) {
+          const mouseButtons = (packet.cursor.leftClick ? 1 : 0) | (packet.cursor.rightClick ? 2 : 0);
+          const dx = Math.round(packet.cursor.dx);
+          const dy = Math.round(packet.cursor.dy);
+          const scroll = Math.round(packet.cursor.scrollDelta || 0);
+
+          if (dx !== 0 || dy !== 0 || mouseButtons !== 0 || scroll !== 0) {
+            NativeBluetoothGamepad.sendMouseReport({
+              buttons: mouseButtons,
+              dx,
+              dy,
+              scroll
+            }).catch(() => {});
+          }
+        }
+
+        // Send Keyboard Text (Report ID 3) if text submitted
+        if (packet.keyboard && packet.keyboard.text) {
+          NativeBluetoothGamepad.sendKeyboardText({
+            text: packet.keyboard.text,
+            sendEnter: true
+          }).catch(() => {});
+        }
       } catch {}
     }
 
